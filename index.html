@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenMV IDE</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div class="ide-layout">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <button class="sidebar-btn active" data-panel="files" title="Files">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+        <span>Files</span>
+      </button>
+      <button class="sidebar-btn" data-panel="examples" title="Examples">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        <span>Examples</span>
+      </button>
+      <button class="sidebar-btn" data-panel="docs" title="Docs">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+        <span>Docs</span>
+      </button>
+      <div class="sidebar-spacer"></div>
+      <button class="sidebar-btn" id="btn-connect" title="Connect">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <span>Connect</span>
+      </button>
+      <button class="sidebar-btn" id="btn-run-stop" title="Run (F5)">
+        <svg class="icon-play" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg class="icon-stop" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        <span class="run-stop-label">Run</span>
+      </button>
+      <button class="sidebar-btn" data-panel="settings" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </div>
+
+    <!-- SIDE PANEL (Files/Examples/Docs/Settings) -->
+    <div class="side-panel" id="side-panel">
+        <!-- Files panel -->
+        <div class="side-panel-content" data-panel="files">
+          <div class="side-panel-header">Files</div>
+          <div class="file-tree">
+            <div class="tree-item active">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+              <span>untitled_1.py</span>
+            </div>
+            <div class="tree-section">
+              <div class="tree-section-header">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                Camera Storage
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>main.py</span>
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>config.json</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Examples panel -->
+        <div class="side-panel-content" data-panel="examples" style="display:none">
+          <div class="side-panel-header">Examples</div>
+          <div class="file-tree">
+            <div class="tree-section">
+              <div class="tree-section-header">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                Basics
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>helloworld.py</span>
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>face_detection.py</span>
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>color_tracking.py</span>
+              </div>
+            </div>
+            <div class="tree-section">
+              <div class="tree-section-header">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                Machine Learning
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>person_detection.py</span>
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>image_classification.py</span>
+              </div>
+            </div>
+            <div class="tree-section">
+              <div class="tree-section-header">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                AprilTags
+              </div>
+              <div class="tree-item indent">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span>find_apriltags.py</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Docs panel -->
+        <div class="side-panel-content" data-panel="docs" style="display:none">
+          <div class="side-panel-header">Documentation</div>
+          <div class="file-tree">
+            <div class="tree-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+              <span>Getting Started</span>
+            </div>
+            <div class="tree-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+              <span>MicroPython Reference</span>
+            </div>
+            <div class="tree-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+              <span>Image Module</span>
+            </div>
+            <div class="tree-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+              <span>Sensor Module</span>
+            </div>
+            <div class="tree-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+              <span>Machine Learning</span>
+            </div>
+            <div class="tree-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+              <span>Hardware Guide</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings panel -->
+        <div class="side-panel-content" data-panel="settings" style="display:none">
+          <div class="side-panel-header">Settings</div>
+          <div class="settings-list">
+            <div class="settings-group">
+              <div class="settings-group-title">Editor</div>
+              <div class="settings-row">
+                <span>Font Size</span>
+                <input type="number" class="settings-input" value="13" min="8" max="32">
+              </div>
+              <div class="settings-row">
+                <span>Tab Size</span>
+                <input type="number" class="settings-input" value="4" min="2" max="8">
+              </div>
+              <div class="settings-row">
+                <span>Word Wrap</span>
+                <label class="settings-toggle"><input type="checkbox"><span class="toggle-track"></span></label>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">Connection</div>
+              <div class="settings-row">
+                <span>Baudrate</span>
+                <select class="settings-select">
+                  <option>921600</option>
+                  <option>115200</option>
+                  <option>460800</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <span>Auto Connect</span>
+                <label class="settings-toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">Frame Buffer</div>
+              <div class="settings-row">
+                <span>JPEG Quality</span>
+                <input type="number" class="settings-input" value="80" min="10" max="100">
+              </div>
+              <div class="settings-row">
+                <span>High-DPI Scaling</span>
+                <label class="settings-toggle"><input type="checkbox"><span class="toggle-track"></span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+    </div>
+
+    <!-- MAIN AREA -->
+    <div class="main-area">
+      <!-- Editor + Terminal -->
+      <div class="editor-area">
+        <div id="monaco-editor"></div>
+      </div>
+      <div class="resize-handle-v" id="resize-v"></div>
+      <div class="terminal-panel">
+        <div class="terminal-header">
+          <div class="terminal-tabs">
+            <div class="terminal-tab active">Serial Terminal</div>
+          </div>
+          <div class="terminal-actions">
+            <button class="term-btn" title="Clear" id="btn-clear-term">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="terminal-content" id="terminal-output">
+          <div class="info-line">OpenMV IDE v0.1.0</div>
+          <div class="info-line">Ready.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESIZE HANDLE: horizontal (between main and right panel) -->
+    <div class="resize-handle-h" id="resize-h"></div>
+
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
+      <div class="fb-section">
+        <div class="fb-header">
+          <span class="fb-title">Frame Buffer</span>
+          <div class="fb-controls">
+            <button class="fb-btn active">Zoom</button>
+            <button class="fb-btn">Disable</button>
+            <button class="fb-btn">JPG</button>
+          </div>
+        </div>
+        <div class="fb-viewport">
+          <div class="no-image">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <span>No image data</span>
+          </div>
+          <canvas id="framebuffer-canvas" style="display:none;"></canvas>
+        </div>
+        <div class="fb-info-strip">
+          <div class="info-tag">
+            <span class="info-badge badge-res" id="fb-resolution">-- x --</span>
+            <span class="info-badge badge-focus" id="fb-focus">Focus --</span>
+          </div>
+          <div class="info-tag">
+            <span class="fb-format" id="fb-format">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resize handle between FB and histogram -->
+      <div class="resize-handle-v" id="resize-fb-hist"></div>
+
+      <!-- Histogram -->
+      <div class="histogram-section">
+        <button class="histogram-toggle open" id="hist-toggle">
+          <div class="ht-left">
+            <span class="ht-label">Histogram</span>
+            <span class="ht-badge">RGB</span>
+          </div>
+          <svg class="ht-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="histogram-body open" id="hist-body">
+          <div class="hist-channels">
+            <div class="hist-channel ch-r"><span class="hist-ch-label">R</span></div>
+            <div class="hist-channel ch-g"><span class="hist-ch-label">G</span></div>
+            <div class="hist-channel ch-b"><span class="hist-ch-label">B</span></div>
+          </div>
+          <div class="hist-stats">
+            <div class="hist-stat"><span class="stat-label">Mean</span><span class="stat-val">0</span></div>
+            <div class="hist-stat"><span class="stat-label">Median</span><span class="stat-val">0</span></div>
+            <div class="hist-stat"><span class="stat-label">StDev</span><span class="stat-val">0</span></div>
+            <div class="hist-stat"><span class="stat-label">Min</span><span class="stat-val">0</span></div>
+            <div class="hist-stat"><span class="stat-label">Max</span><span class="stat-val">0</span></div>
+            <div class="hist-stat"><span class="stat-label">Mode</span><span class="stat-val">0</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATUS BAR -->
+    <div class="statusbar">
+      <div class="status-left">
+        <div class="status-item">
+          <span class="status-dot disconnected"></span>
+          <span class="val" id="status-board">Disconnected</span>
+        </div>
+      </div>
+      <div class="status-right">
+        <div class="status-item">
+          <span id="status-cursor">Ln 1, Col 1</span>
+        </div>
+        <span class="status-sep"></span>
+        <div class="fps-display">
+          <span id="status-fps">--</span>
+          <span class="fps-label">FPS</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

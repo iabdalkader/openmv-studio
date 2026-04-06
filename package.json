@@ -1,0 +1,19 @@
+{
+  "name": "openmv-ide",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "monaco-editor": "^0.55.1"
+  }
+}
