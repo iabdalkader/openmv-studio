@@ -125,6 +125,7 @@ pub mod ioctl {
     pub const STREAM_CTRL: u32 = 0x00;
     pub const STREAM_RAW_CTRL: u32 = 0x01;
     pub const STREAM_RAW_CFG: u32 = 0x02;
+    pub const STREAM_SOURCE: u32 = 0x03;
     // profile
     pub const PROFILE_MODE: u32 = 0x00;
     pub const PROFILE_SET_EVENT: u32 = 0x01;
@@ -145,6 +146,7 @@ pub struct SystemInfo {
     pub cpu_id: u32,
     pub usb_vid: u16,
     pub usb_pid: u16,
+    pub chip_ids: [u32; 3],
     pub flash_size_kb: u32,
     pub ram_size_kb: u32,
     pub npu_present: bool,

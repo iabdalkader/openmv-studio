@@ -347,6 +347,15 @@ body {
 }
 .fb-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
 .fb-btn.active { color: var(--text-primary); background: var(--bg-elevated); }
+#fb-source {
+  font-size: 11px; font-weight: 500; padding: 4px 8px; border: none;
+  background: var(--bg-elevated); color: var(--text-secondary); border-radius: var(--radius-sm);
+  cursor: pointer; font-family: var(--font-ui); outline: none;
+  margin-right: 4px;
+}
+#fb-source:hover { color: var(--text-primary); }
+#fb-source:focus { color: var(--text-primary); }
+#fb-source:disabled { color: var(--text-tertiary); cursor: default; opacity: 0.6; }
 
 .fb-viewport {
   flex: 1; background: var(--fb-bg); display: flex; align-items: center;

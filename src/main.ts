@@ -865,6 +865,41 @@ function setScriptRunning(running: boolean) {
   if (runStopLabel) runStopLabel.textContent = running ? 'Stop' : 'Run';
 }
 
+const fbSourceSelect = document.getElementById('fb-source') as HTMLSelectElement;
+
+function populateSensorSelect(sensors: { chip_id: number; name: string }[]) {
+  fbSourceSelect.innerHTML = '';
+  if (sensors.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No sensor';
+    fbSourceSelect.appendChild(opt);
+    fbSourceSelect.disabled = true;
+    connectedSensor = null;
+    return;
+  }
+  fbSourceSelect.disabled = false;
+  for (const s of sensors) {
+    const opt = document.createElement('option');
+    opt.value = s.chip_id.toString();
+    opt.textContent = s.name;
+    fbSourceSelect.appendChild(opt);
+  }
+  connectedSensor = sensors[0].name;
+}
+
+fbSourceSelect.addEventListener('change', async () => {
+  const chipId = parseInt(fbSourceSelect.value, 10);
+  if (isNaN(chipId)) return;
+  try {
+    await invoke('cmd_set_stream_source', { chipId });
+    const selected = fbSourceSelect.options[fbSourceSelect.selectedIndex];
+    connectedSensor = selected?.textContent || null;
+  } catch (e) {
+    console.error('Failed to set stream source:', e);
+  }
+});
+
 async function doConnect() {
   if (isConnected) return;
   try {
@@ -878,8 +913,9 @@ async function doConnect() {
     const version = await invoke<any>('cmd_get_version');
     const fw = version?.data ? `${version.data.firmware[0]}.${version.data.firmware[1]}.${version.data.firmware[2]}` : '?';
     connectedBoard = sysinfo.board_type;
-    connectedSensor = null; // TODO: sensor from chip_id
+    connectedSensor = null;
     setConnected(true, `${sysinfo.board_name} | ${ports[0]} | v${fw}`);
+    populateSensorSelect(sysinfo.sensors || []);
 
     // Stop any running script from a previous session
     try { await invoke('cmd_stop_script'); } catch (_) {}
@@ -903,6 +939,7 @@ async function doDisconnect() {
   connectedBoard = null;
   connectedSensor = null;
   setConnected(false);
+  populateSensorSelect([]);
   // Reload examples unfiltered, or clear if filtering is on
   examplesLoaded = false;
   if (filterExamples) {

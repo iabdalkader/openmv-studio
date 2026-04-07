@@ -97,6 +97,15 @@ fn cmd_get_sysinfo(
     let st = state.lock().map_err(|e| e.to_string())?;
     let info = st.camera.sysinfo.as_ref().ok_or("Not connected")?;
     let (board_type, board_name) = lookup_board(&app, info.usb_vid, info.usb_pid);
+    let sensors: Vec<serde_json::Value> = info
+        .chip_ids
+        .iter()
+        .filter(|&&id| id != 0)
+        .map(|&id| {
+            let name = lookup_sensor(&app, id);
+            serde_json::json!({ "chip_id": id, "name": name })
+        })
+        .collect();
     Ok(serde_json::json!({
         "cpu_id": info.cpu_id,
         "usb_vid": info.usb_vid,
@@ -107,6 +116,7 @@ fn cmd_get_sysinfo(
         "ram_size_kb": info.ram_size_kb,
         "npu_present": info.npu_present,
         "pmu_present": info.pmu_present,
+        "sensors": sensors,
     }))
 }
 
@@ -144,6 +154,39 @@ fn lookup_board(app: &tauri::AppHandle, vid: u16, pid: u16) -> (String, String) 
         format!("{:04X}:{:04X}", vid, pid),
         "Unknown Board".to_string(),
     )
+}
+
+fn lookup_sensor(app: &tauri::AppHandle, chip_id: u32) -> String {
+    let res_dir = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|p| p.join("resources").join("sensors.json"));
+    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("resources")
+        .join("sensors.json");
+    let path = match res_dir {
+        Some(ref p) if p.exists() => p.clone(),
+        _ => dev_path,
+    };
+    let key = format!("0x{:X}", chip_id);
+    if let Ok(data) = std::fs::read_to_string(&path)
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&data)
+        && let Some(name) = json["sensors"][&key].as_str()
+    {
+        return name.to_string();
+    }
+    format!("Unknown (0x{:X})", chip_id)
+}
+
+#[tauri::command]
+fn cmd_set_stream_source(chip_id: u32, state: State<Mutex<AppState>>) -> Result<(), String> {
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    st.camera
+        .set_stream_source(chip_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -547,6 +590,7 @@ pub fn run() {
             cmd_run_script,
             cmd_stop_script,
             cmd_enable_streaming,
+            cmd_set_stream_source,
             cmd_poll,
             cmd_list_examples,
             cmd_read_file,

@@ -162,10 +162,16 @@ impl Camera {
             if p.len() >= 76 {
                 let usb_id = u32::from_le_bytes([p[16], p[17], p[18], p[19]]);
                 let caps = u32::from_le_bytes([p[40], p[41], p[42], p[43]]);
+                let chip_ids = [
+                    u32::from_le_bytes([p[20], p[21], p[22], p[23]]),
+                    u32::from_le_bytes([p[24], p[25], p[26], p[27]]),
+                    u32::from_le_bytes([p[28], p[29], p[30], p[31]]),
+                ];
                 self.sysinfo = Some(SystemInfo {
                     cpu_id: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
                     usb_vid: (usb_id >> 16) as u16,
                     usb_pid: usb_id as u16,
+                    chip_ids,
                     flash_size_kb: u32::from_le_bytes([p[48], p[49], p[50], p[51]]),
                     ram_size_kb: u32::from_le_bytes([p[52], p[53], p[54], p[55]]),
                     npu_present: caps & (1 << 1) != 0,
@@ -247,6 +253,11 @@ impl Camera {
         let id = self.ch("stream")?;
         self.ch_ioctl(id, ioctl::STREAM_RAW_CTRL, &[0])?;
         self.ch_ioctl(id, ioctl::STREAM_CTRL, &[enable as u32])
+    }
+
+    pub fn set_stream_source(&mut self, chip_id: u32) -> Result<(), ProtocolError> {
+        let id = self.ch("stream")?;
+        self.ch_ioctl(id, ioctl::STREAM_SOURCE, &[chip_id])
     }
 
     pub fn read_stdout(&mut self, resync: bool) -> Result<Option<String>, ProtocolError> {
