@@ -108,11 +108,19 @@ impl Transport {
     }
 
     fn calc_crc16(&self, data: &[u8]) -> u16 {
-        if self.crc_enabled { crc16(data) } else { 0 }
+        if self.crc_enabled {
+            crc16(data)
+        } else {
+            0
+        }
     }
 
     fn calc_crc32(&self, data: &[u8]) -> u32 {
-        if self.crc_enabled { crc32(data) } else { 0 }
+        if self.crc_enabled {
+            crc32(data)
+        } else {
+            0
+        }
     }
 
     fn check_crc16(&self, crc: u16, data: &[u8]) -> bool {
@@ -258,8 +266,7 @@ impl Transport {
                 if let Some(ref p) = packet.payload {
                     if p.len() >= 2 {
                         let status_val = u16::from_le_bytes([p[0], p[1]]);
-                        let status = Status::from_u16(status_val)
-                            .unwrap_or(Status::Unknown);
+                        let status = Status::from_u16(status_val).unwrap_or(Status::Unknown);
                         if status == Status::Busy {
                             return Err(ProtocolError::Nak(Status::Busy));
                         }
@@ -311,7 +318,9 @@ impl Transport {
     /// Run the protocol state machine. Returns a parsed packet or None.
     fn process(&mut self) -> Option<Packet> {
         loop {
-            if self.available() < 2 { return None; }
+            if self.available() < 2 {
+                return None;
+            }
 
             match self.state {
                 ParseState::Sync => {
@@ -323,13 +332,19 @@ impl Transport {
                         }
                         i += 1;
                     }
-                    if i > 0 { self.consume(i); }
-                    if self.available() < 2 { return None; }
+                    if i > 0 {
+                        self.consume(i);
+                    }
+                    if self.available() < 2 {
+                        return None;
+                    }
                     self.state = ParseState::Header;
                 }
 
                 ParseState::Header => {
-                    if self.available() < HEADER_SIZE { return None; }
+                    if self.available() < HEADER_SIZE {
+                        return None;
+                    }
                     let d = self.data();
 
                     let seq = d[2];
@@ -345,15 +360,16 @@ impl Transport {
                         self.consume(1);
                         self.state = ParseState::Sync;
                     } else {
-                        self.plength = HEADER_SIZE
-                            + length as usize
-                            + if length > 0 { CRC_SIZE } else { 0 };
+                        self.plength =
+                            HEADER_SIZE + length as usize + if length > 0 { CRC_SIZE } else { 0 };
                         self.state = ParseState::Payload;
                     }
                 }
 
                 ParseState::Payload => {
-                    if self.available() < self.plength { return None; }
+                    if self.available() < self.plength {
+                        return None;
+                    }
                     let d = self.data();
 
                     let seq = d[2];

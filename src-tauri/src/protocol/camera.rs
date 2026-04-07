@@ -14,7 +14,10 @@ use crate::protocol::transport::{ProtocolError, Transport};
 // -- Messages between main thread and I/O thread --
 
 pub enum Command {
-    Connect { port: String, baudrate: u32 },
+    Connect {
+        port: String,
+        baudrate: u32,
+    },
     Disconnect,
     RunScript(String),
     StopScript,
@@ -67,7 +70,7 @@ pub struct FrameInfo {
     pub width: u32,
     pub height: u32,
     pub format_str: String,
-    pub data: Vec<u8>,  // raw bytes (JPEG or RGBA)
+    pub data: Vec<u8>, // raw bytes (JPEG or RGBA)
     pub is_jpeg: bool,
 }
 
@@ -108,14 +111,23 @@ struct Caps {
 }
 
 impl IoWorker {
-    fn send_cmd(&mut self, opcode: Opcode, channel: u8, data: Option<&[u8]>) -> Result<Option<Vec<u8>>, ProtocolError> {
-        self.transport.send_packet(opcode, channel, PacketFlags::empty(), data)?;
+    fn send_cmd(
+        &mut self,
+        opcode: Opcode,
+        channel: u8,
+        data: Option<&[u8]>,
+    ) -> Result<Option<Vec<u8>>, ProtocolError> {
+        self.transport
+            .send_packet(opcode, channel, PacketFlags::empty(), data)?;
         match self.transport.recv_packet() {
             Ok(r) => Ok(r),
-            Err(ProtocolError::Checksum) | Err(ProtocolError::Sequence) | Err(ProtocolError::Timeout) => {
+            Err(ProtocolError::Checksum)
+            | Err(ProtocolError::Sequence)
+            | Err(ProtocolError::Timeout) => {
                 log::warn!("Protocol error, resyncing...");
                 self.resync()?;
-                self.transport.send_packet(opcode, channel, PacketFlags::empty(), data)?;
+                self.transport
+                    .send_packet(opcode, channel, PacketFlags::empty(), data)?;
                 self.transport.recv_packet()
             }
             Err(e) => Err(e),
@@ -123,8 +135,14 @@ impl IoWorker {
     }
 
     /// Send command without resync on error -- used for non-critical reads
-    fn send_cmd_soft(&mut self, opcode: Opcode, channel: u8, data: Option<&[u8]>) -> Result<Option<Vec<u8>>, ProtocolError> {
-        self.transport.send_packet(opcode, channel, PacketFlags::empty(), data)?;
+    fn send_cmd_soft(
+        &mut self,
+        opcode: Opcode,
+        channel: u8,
+        data: Option<&[u8]>,
+    ) -> Result<Option<Vec<u8>>, ProtocolError> {
+        self.transport
+            .send_packet(opcode, channel, PacketFlags::empty(), data)?;
         self.transport.recv_packet()
     }
 
@@ -134,7 +152,8 @@ impl IoWorker {
         self.transport.reset_sequence();
 
         for attempt in 0..3 {
-            self.transport.send_packet(Opcode::ProtoSync, 0, PacketFlags::empty(), None)?;
+            self.transport
+                .send_packet(Opcode::ProtoSync, 0, PacketFlags::empty(), None)?;
             match self.transport.recv_packet() {
                 Ok(_) => {
                     self.transport.reset_sequence();
@@ -149,7 +168,8 @@ impl IoWorker {
     }
 
     fn negotiate_caps(&mut self) -> Result<(), ProtocolError> {
-        let payload = self.send_cmd(Opcode::ProtoGetCaps, 0, None)?
+        let payload = self
+            .send_cmd(Opcode::ProtoGetCaps, 0, None)?
             .ok_or(ProtocolError::Timeout)?;
         if payload.len() < 6 {
             return Err(ProtocolError::IoError("Invalid caps payload".into()));
@@ -167,12 +187,14 @@ impl IoWorker {
         set_caps[4..6].copy_from_slice(&(self.caps.max_payload as u16).to_le_bytes());
 
         self.send_cmd(Opcode::ProtoSetCaps, 0, Some(&set_caps))?;
-        self.transport.update_caps(self.caps.crc, self.caps.seq, self.caps.max_payload);
+        self.transport
+            .update_caps(self.caps.crc, self.caps.seq, self.caps.max_payload);
         Ok(())
     }
 
     fn update_channels(&mut self) -> Result<(), ProtocolError> {
-        let payload = self.send_cmd(Opcode::ChannelList, 0, None)?
+        let payload = self
+            .send_cmd(Opcode::ChannelList, 0, None)?
             .ok_or(ProtocolError::Timeout)?;
 
         self.channels_by_id.clear();
@@ -195,7 +217,9 @@ impl IoWorker {
     }
 
     fn channel_id(&self, name: &str) -> Result<u8, ProtocolError> {
-        self.channels_by_name.get(name).copied()
+        self.channels_by_name
+            .get(name)
+            .copied()
             .ok_or_else(|| ProtocolError::IoError(format!("Channel '{}' not found", name)))
     }
 
@@ -210,7 +234,8 @@ impl IoWorker {
     }
 
     fn channel_size(&mut self, id: u8) -> Result<u32, ProtocolError> {
-        let p = self.send_cmd(Opcode::ChannelSize, id, None)?
+        let p = self
+            .send_cmd(Opcode::ChannelSize, id, None)?
             .ok_or(ProtocolError::Timeout)?;
         Ok(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
     }
@@ -237,7 +262,12 @@ impl IoWorker {
         Ok(())
     }
 
-    fn channel_ioctl(&mut self, id: u8, cmd: u32, args: &[u32]) -> Result<Option<Vec<u8>>, ProtocolError> {
+    fn channel_ioctl(
+        &mut self,
+        id: u8,
+        cmd: u32,
+        args: &[u32],
+    ) -> Result<Option<Vec<u8>>, ProtocolError> {
         let mut payload = vec![0u8; 4 + args.len() * 4];
         payload[0..4].copy_from_slice(&cmd.to_le_bytes());
         for (i, arg) in args.iter().enumerate() {
@@ -247,7 +277,8 @@ impl IoWorker {
     }
 
     fn get_version(&mut self) -> Result<Response, ProtocolError> {
-        let p = self.send_cmd(Opcode::ProtoVersion, 0, None)?
+        let p = self
+            .send_cmd(Opcode::ProtoVersion, 0, None)?
             .ok_or(ProtocolError::Timeout)?;
         if p.len() < 16 {
             return Err(ProtocolError::IoError("Invalid version payload".into()));
@@ -260,7 +291,8 @@ impl IoWorker {
     }
 
     fn get_system_info(&mut self) -> Result<Response, ProtocolError> {
-        let p = self.send_cmd(Opcode::SysInfo, 0, None)?
+        let p = self
+            .send_cmd(Opcode::SysInfo, 0, None)?
             .ok_or(ProtocolError::Timeout)?;
         if p.len() < 76 {
             return Err(ProtocolError::IoError("Invalid sysinfo payload".into()));
@@ -307,7 +339,8 @@ impl IoWorker {
 
     fn read_stdout_soft(&mut self) -> Result<Option<String>, ProtocolError> {
         let id = self.channel_id("stdout")?;
-        let p = self.send_cmd_soft(Opcode::ChannelSize, id, None)?
+        let p = self
+            .send_cmd_soft(Opcode::ChannelSize, id, None)?
             .ok_or(ProtocolError::Timeout)?;
         let size = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
         if size == 0 {
@@ -316,7 +349,8 @@ impl IoWorker {
         let mut req = vec![0u8; 8];
         req[0..4].copy_from_slice(&0u32.to_le_bytes());
         req[4..8].copy_from_slice(&size.to_le_bytes());
-        let data = self.send_cmd_soft(Opcode::ChannelRead, id, Some(&req))?
+        let data = self
+            .send_cmd_soft(Opcode::ChannelRead, id, Some(&req))?
             .ok_or(ProtocolError::Timeout)?;
         Ok(Some(String::from_utf8_lossy(&data).to_string()))
     }
@@ -337,12 +371,13 @@ impl IoWorker {
         match self.send_cmd_soft(Opcode::ChannelLock, id, None) {
             Ok(Some(_)) | Ok(None) => {} // locked OK (ACK or true)
             Err(ProtocolError::Nak(Status::Busy)) => return Ok(None), // not ready
-            Err(_) => return Ok(None), // any error, skip
+            Err(_) => return Ok(None),   // any error, skip
         }
 
         let result = (|| {
             // Lock succeeded -- frame is ready. Get size and read.
-            let p = self.send_cmd_soft(Opcode::ChannelSize, id, None)?
+            let p = self
+                .send_cmd_soft(Opcode::ChannelSize, id, None)?
                 .ok_or(ProtocolError::Timeout)?;
             let size = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
             if size <= 20 {
@@ -351,7 +386,8 @@ impl IoWorker {
             let mut req = vec![0u8; 8];
             req[0..4].copy_from_slice(&0u32.to_le_bytes());
             req[4..8].copy_from_slice(&size.to_le_bytes());
-            let data = self.send_cmd_soft(Opcode::ChannelRead, id, Some(&req))?
+            let data = self
+                .send_cmd_soft(Opcode::ChannelRead, id, Some(&req))?
                 .ok_or(ProtocolError::Timeout)?;
             if data.len() < 20 {
                 return Ok(None);
@@ -363,40 +399,48 @@ impl IoWorker {
 
             // Validate header values
             if width == 0 || height == 0 || width > 4096 || height > 4096 || offset >= data.len() {
-                log::warn!("Invalid frame header: {}x{} offset={} len={}", width, height, offset, data.len());
+                log::warn!(
+                    "Invalid frame header: {}x{} offset={} len={}",
+                    width,
+                    height,
+                    offset,
+                    data.len()
+                );
                 return Ok(None);
             }
             let raw = &data[offset..];
 
             const PIXFORMAT_GRAYSCALE: u32 = 0x08020001;
-            const PIXFORMAT_RGB565: u32    = 0x0C030002;
-            const PIXFORMAT_JPEG: u32      = 0x06060000;
+            const PIXFORMAT_RGB565: u32 = 0x0C030002;
+            const PIXFORMAT_JPEG: u32 = 0x06060000;
 
             let pixels = (width as usize).saturating_mul(height as usize);
 
             let frame = match format {
-                PIXFORMAT_JPEG => {
-                    FrameInfo {
-                        width, height,
-                        format_str: "JPEG".into(),
-                        data: raw.to_vec(),
-                        is_jpeg: true,
-                    }
-                }
+                PIXFORMAT_JPEG => FrameInfo {
+                    width,
+                    height,
+                    format_str: "JPEG".into(),
+                    data: raw.to_vec(),
+                    is_jpeg: true,
+                },
                 PIXFORMAT_RGB565 => {
                     let mut rgba = vec![255u8; pixels * 4];
                     for i in 0..pixels {
-                        if i * 2 + 1 >= raw.len() { break; }
+                        if i * 2 + 1 >= raw.len() {
+                            break;
+                        }
                         let pixel = u16::from_le_bytes([raw[i * 2], raw[i * 2 + 1]]);
                         let r = ((pixel >> 11) & 0x1F) as u32;
                         let g = ((pixel >> 5) & 0x3F) as u32;
                         let b = (pixel & 0x1F) as u32;
-                        rgba[i * 4]     = ((r * 255) / 31) as u8;
+                        rgba[i * 4] = ((r * 255) / 31) as u8;
                         rgba[i * 4 + 1] = ((g * 255) / 63) as u8;
                         rgba[i * 4 + 2] = ((b * 255) / 31) as u8;
                     }
                     FrameInfo {
-                        width, height,
+                        width,
+                        height,
                         format_str: "RGB565".into(),
                         data: rgba,
                         is_jpeg: false,
@@ -405,27 +449,29 @@ impl IoWorker {
                 PIXFORMAT_GRAYSCALE => {
                     let mut rgba = vec![255u8; pixels * 4];
                     for i in 0..pixels {
-                        if i >= raw.len() { break; }
+                        if i >= raw.len() {
+                            break;
+                        }
                         let g = raw[i];
-                        rgba[i * 4]     = g;
+                        rgba[i * 4] = g;
                         rgba[i * 4 + 1] = g;
                         rgba[i * 4 + 2] = g;
                     }
                     FrameInfo {
-                        width, height,
+                        width,
+                        height,
                         format_str: "GRAY".into(),
                         data: rgba,
                         is_jpeg: false,
                     }
                 }
-                _ => {
-                    FrameInfo {
-                        width, height,
-                        format_str: format!("0x{:08X}", format),
-                        data: raw.to_vec(),
-                        is_jpeg: false,
-                    }
-                }
+                _ => FrameInfo {
+                    width,
+                    height,
+                    format_str: format!("0x{:08X}", format),
+                    data: raw.to_vec(),
+                    is_jpeg: false,
+                },
             };
             Ok(Some(frame))
         })();
@@ -441,14 +487,20 @@ impl IoWorker {
         // Poll channel readiness first (like the Python CLI does)
         let status = match self.poll_status_soft() {
             Ok(s) => s,
-            Err(_) => { need_resync = true; HashMap::new() }
+            Err(_) => {
+                need_resync = true;
+                HashMap::new()
+            }
         };
 
         // Only read stdout if channel has data
         let stdout = if !need_resync && status.get("stdout").copied().unwrap_or(false) {
             match self.read_stdout_soft() {
                 Ok(s) => s,
-                Err(_) => { need_resync = true; None }
+                Err(_) => {
+                    need_resync = true;
+                    None
+                }
             }
         } else {
             None
@@ -476,7 +528,8 @@ impl IoWorker {
     }
 
     fn poll_status(&mut self) -> Result<HashMap<String, bool>, ProtocolError> {
-        let p = self.send_cmd(Opcode::ChannelPoll, 0, None)?
+        let p = self
+            .send_cmd(Opcode::ChannelPoll, 0, None)?
             .ok_or(ProtocolError::Timeout)?;
         let flags = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
 
@@ -488,7 +541,8 @@ impl IoWorker {
     }
 
     fn poll_status_soft(&mut self) -> Result<HashMap<String, bool>, ProtocolError> {
-        let p = self.send_cmd_soft(Opcode::ChannelPoll, 0, None)?
+        let p = self
+            .send_cmd_soft(Opcode::ChannelPoll, 0, None)?
             .ok_or(ProtocolError::Timeout)?;
         let flags = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
 
@@ -553,7 +607,9 @@ impl Camera {
         if self.cmd_tx.send(cmd).is_err() {
             return Response::Error("I/O thread not running".into());
         }
-        self.resp_rx.recv().unwrap_or_else(|_| Response::Error("I/O thread died".into()))
+        self.resp_rx
+            .recv()
+            .unwrap_or_else(|_| Response::Error("I/O thread died".into()))
     }
 
     pub fn shutdown(&mut self) {
@@ -595,13 +651,15 @@ fn io_thread_main(cmd_rx: mpsc::Receiver<Command>, resp_tx: mpsc::Sender<Respons
                         // Get version + sysinfo after connect
                         if let Some(ref mut w) = worker {
                             let fw_str = match w.get_version() {
-                                Ok(Response::Version { firmware, .. }) =>
-                                    format!("{}.{}.{}", firmware[0], firmware[1], firmware[2]),
+                                Ok(Response::Version { firmware, .. }) => {
+                                    format!("{}.{}.{}", firmware[0], firmware[1], firmware[2])
+                                }
                                 _ => fw,
                             };
                             let board_str = match w.get_system_info() {
-                                Ok(Response::SystemInfo(ref info)) =>
-                                    format!("OpenMV (0x{:08X})", info.cpu_id),
+                                Ok(Response::SystemInfo(ref info)) => {
+                                    format!("OpenMV (0x{:08X})", info.cpu_id)
+                                }
                                 _ => board,
                             };
                             Response::Connected {
@@ -622,101 +680,85 @@ fn io_thread_main(cmd_rx: mpsc::Receiver<Command>, resp_tx: mpsc::Sender<Respons
                 Response::Disconnected
             }
 
-            Command::RunScript(script) => {
-                match worker.as_mut() {
-                    Some(w) => match w.exec_script(&script) {
-                        Ok(()) => Response::Ok,
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::RunScript(script) => match worker.as_mut() {
+                Some(w) => match w.exec_script(&script) {
+                    Ok(()) => Response::Ok,
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::StopScript => {
-                match worker.as_mut() {
-                    Some(w) => match w.stop_script() {
-                        Ok(()) => Response::Ok,
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::StopScript => match worker.as_mut() {
+                Some(w) => match w.stop_script() {
+                    Ok(()) => Response::Ok,
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::ReadStdout => {
-                match worker.as_mut() {
-                    Some(w) => match w.read_stdout() {
-                        Ok(Some(text)) => Response::Stdout(text),
-                        Ok(None) => Response::Stdout(String::new()),
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::ReadStdout => match worker.as_mut() {
+                Some(w) => match w.read_stdout() {
+                    Ok(Some(text)) => Response::Stdout(text),
+                    Ok(None) => Response::Stdout(String::new()),
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::EnableStreaming(enable) => {
-                match worker.as_mut() {
-                    Some(w) => match w.enable_streaming(enable) {
-                        Ok(()) => Response::Ok,
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::EnableStreaming(enable) => match worker.as_mut() {
+                Some(w) => match w.enable_streaming(enable) {
+                    Ok(()) => Response::Ok,
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::ReadFrame => {
-                match worker.as_mut() {
-                    Some(w) => match w.read_frame() {
-                        Ok(Some(f)) => Response::Frame {
-                            width: f.width, height: f.height,
-                            format_str: f.format_str, data: f.data,
-                            is_jpeg: f.is_jpeg,
-                        },
-                        Ok(None) => Response::Error("No frame".into()),
-                        Err(e) => Response::Error(format!("{}", e)),
+            Command::ReadFrame => match worker.as_mut() {
+                Some(w) => match w.read_frame() {
+                    Ok(Some(f)) => Response::Frame {
+                        width: f.width,
+                        height: f.height,
+                        format_str: f.format_str,
+                        data: f.data,
+                        is_jpeg: f.is_jpeg,
                     },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+                    Ok(None) => Response::Error("No frame".into()),
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::Poll => {
-                match worker.as_mut() {
-                    Some(w) => match w.poll_all() {
-                        Ok(r) => r,
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::Poll => match worker.as_mut() {
+                Some(w) => match w.poll_all() {
+                    Ok(r) => r,
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::PollStatus => {
-                match worker.as_mut() {
-                    Some(w) => match w.poll_status() {
-                        Ok(s) => Response::Status(s),
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::PollStatus => match worker.as_mut() {
+                Some(w) => match w.poll_status() {
+                    Ok(s) => Response::Status(s),
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::GetVersion => {
-                match worker.as_mut() {
-                    Some(w) => match w.get_version() {
-                        Ok(v) => v,
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::GetVersion => match worker.as_mut() {
+                Some(w) => match w.get_version() {
+                    Ok(v) => v,
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
 
-            Command::GetSystemInfo => {
-                match worker.as_mut() {
-                    Some(w) => match w.get_system_info() {
-                        Ok(v) => v,
-                        Err(e) => Response::Error(format!("{}", e)),
-                    },
-                    None => Response::Error("Not connected".into()),
-                }
-            }
+            Command::GetSystemInfo => match worker.as_mut() {
+                Some(w) => match w.get_system_info() {
+                    Ok(v) => v,
+                    Err(e) => Response::Error(format!("{}", e)),
+                },
+                None => Response::Error("Not connected".into()),
+            },
         };
 
         if resp_tx.send(response).is_err() {
@@ -731,9 +773,7 @@ fn do_connect(port: &str, baudrate: u32) -> Result<IoWorker, ProtocolError> {
         .open()
         .map_err(|e| ProtocolError::IoError(e.to_string()))?;
 
-    let transport = Transport::new(
-        serial, true, true, MIN_PAYLOAD_SIZE, Duration::from_secs(1),
-    );
+    let transport = Transport::new(serial, true, true, MIN_PAYLOAD_SIZE, Duration::from_secs(1));
 
     let mut worker = IoWorker {
         transport,
@@ -760,9 +800,9 @@ pub fn list_ports() -> Vec<String> {
         .into_iter()
         .filter(|p| {
             if let serialport::SerialPortType::UsbPort(info) = &p.port_type {
-                OPENMV_VID_PID.iter().any(|&(vid, pid)| {
-                    info.vid == vid && pid.map_or(true, |p| info.pid == p)
-                })
+                OPENMV_VID_PID
+                    .iter()
+                    .any(|&(vid, pid)| info.vid == vid && pid.map_or(true, |p| info.pid == p))
             } else {
                 false
             }

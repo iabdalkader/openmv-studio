@@ -1,11 +1,11 @@
 mod protocol;
 
 use std::sync::Mutex;
-use tauri::{State, Emitter, Manager};
 use tauri::ipc;
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
+use tauri::{Emitter, Manager, State};
 
-use protocol::camera::{Camera, Command, Response, list_ports};
+use protocol::camera::{list_ports, Camera, Command, Response};
 
 struct AppState {
     camera: Camera,
@@ -19,7 +19,10 @@ fn cmd_list_ports() -> Vec<String> {
 #[tauri::command]
 fn cmd_connect(port: String, state: State<Mutex<AppState>>) -> Result<Response, String> {
     let mut st = state.lock().map_err(|e| e.to_string())?;
-    let resp = st.camera.execute(Command::Connect { port, baudrate: 921600 });
+    let resp = st.camera.execute(Command::Connect {
+        port,
+        baudrate: 921600,
+    });
     match &resp {
         Response::Error(e) => Err(e.clone()),
         _ => Ok(resp),
@@ -101,7 +104,34 @@ fn cmd_poll(state: State<Mutex<AppState>>) -> Result<ipc::Response, String> {
     }
 }
 
-fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+#[tauri::command]
+fn cmd_read_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("{}: {}", path, e))
+}
+
+#[tauri::command]
+fn cmd_write_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, &content).map_err(|e| format!("{}: {}", path, e))
+}
+
+fn build_menu(
+    app: &tauri::App,
+) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+    // macOS app menu (first submenu becomes the app name menu)
+    let app_menu = SubmenuBuilder::new(app, "OpenMV IDE")
+        .about(None)
+        .separator()
+        .text("settings", "Settings...")
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
     let file = SubmenuBuilder::new(app, "File")
         .text("new", "New")
         .text("open", "Open...")
@@ -172,7 +202,7 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn
         .build()?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&file, &edit, &tools, &device, &view, &help])
+        .items(&[&app_menu, &file, &edit, &tools, &device, &view, &help])
         .build()?;
 
     Ok(menu)
@@ -181,6 +211,9 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(AppState {
             camera: Camera::new(),
         }))
@@ -193,6 +226,8 @@ pub fn run() {
             cmd_read_stdout,
             cmd_enable_streaming,
             cmd_poll,
+            cmd_read_file,
+            cmd_write_file,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

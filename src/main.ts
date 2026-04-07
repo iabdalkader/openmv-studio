@@ -1,6 +1,8 @@
 import * as monaco from 'monaco-editor';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Store } from '@tauri-apps/plugin-store';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 // Monaco workers (required for language features)
 self.MonacoEnvironment = {
@@ -15,10 +17,9 @@ self.MonacoEnvironment = {
   }
 };
 
-// OpenMV dark theme
+// Monaco themes
 monaco.editor.defineTheme('openmv-dark', {
-  base: 'vs-dark',
-  inherit: true,
+  base: 'vs-dark', inherit: true,
   rules: [
     { token: 'comment', foreground: '546e7a', fontStyle: 'italic' },
     { token: 'keyword', foreground: 'c792ea' },
@@ -29,41 +30,151 @@ monaco.editor.defineTheme('openmv-dark', {
     { token: 'delimiter', foreground: '89ddff' },
   ],
   colors: {
-    'editor.background': '#1e1e23',
-    'editor.foreground': '#e8e6e3',
-    'editor.lineHighlightBackground': '#5b9cf510',
-    'editor.selectionBackground': '#5b9cf540',
-    'editorLineNumber.foreground': '#4a4845',
-    'editorLineNumber.activeForeground': '#6b6966',
+    'editor.background': '#1e1e23', 'editor.foreground': '#e8e6e3',
+    'editor.lineHighlightBackground': '#5b9cf510', 'editor.selectionBackground': '#5b9cf540',
+    'editorLineNumber.foreground': '#4a4845', 'editorLineNumber.activeForeground': '#6b6966',
     'editorCursor.foreground': '#5b9cf5',
-    'scrollbarSlider.background': '#ffffff14',
-    'scrollbarSlider.hoverBackground': '#ffffff1f',
+    'scrollbarSlider.background': '#ffffff14', 'scrollbarSlider.hoverBackground': '#ffffff1f',
   }
 });
 
-// Create editor
+monaco.editor.defineTheme('openmv-light', {
+  base: 'vs', inherit: true,
+  rules: [
+    { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'd73a49' },
+    { token: 'string', foreground: '22863a' },
+    { token: 'number', foreground: '005cc5' },
+    { token: 'identifier', foreground: '24292e' },
+    { token: 'type', foreground: 'e36209' },
+    { token: 'delimiter', foreground: '6f42c1' },
+  ],
+  colors: {
+    'editor.background': '#f8f8fa', 'editor.foreground': '#1a1a1e',
+    'editor.lineHighlightBackground': '#2b7cf508', 'editor.selectionBackground': '#2b7cf530',
+    'editorLineNumber.foreground': '#b0b0b8', 'editorLineNumber.activeForeground': '#8a8a94',
+    'editorCursor.foreground': '#2b7cf5',
+    'scrollbarSlider.background': '#00000014', 'scrollbarSlider.hoverBackground': '#0000001f',
+  }
+});
+
+// -- Theme management --
+type ThemeSetting = 'dark' | 'light' | 'system';
+let currentThemeSetting: ThemeSetting = 'dark';
+
+function getEffectiveTheme(): 'dark' | 'light' {
+  if (currentThemeSetting === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return currentThemeSetting;
+}
+
+function applyTheme(setting: ThemeSetting) {
+  currentThemeSetting = setting;
+  const effective = getEffectiveTheme();
+  document.documentElement.setAttribute('data-theme', effective);
+  monaco.editor.setTheme(effective === 'dark' ? 'openmv-dark' : 'openmv-light');
+  scheduleSaveSettings();
+}
+
+// Listen for system theme changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (currentThemeSetting === 'system') applyTheme('system');
+});
+
+// -- Settings store --
+let store: Store | null = null;
+async function getStore(): Promise<Store> {
+  if (!store) {
+    store = await Store.load('settings.json');
+  }
+  return store;
+}
+
+// -- Welcome screen --
+function showWelcome() {
+  const editorArea = document.querySelector('.editor-area') as HTMLElement;
+  // Hide Monaco, show welcome
+  document.getElementById('monaco-editor')!.style.display = 'none';
+  document.getElementById('tab-bar')!.style.display = 'none';
+
+  let existing = document.getElementById('welcome-screen');
+  if (existing) { existing.style.display = ''; return; }
+
+  const welcome = document.createElement('div');
+  welcome.id = 'welcome-screen';
+  welcome.className = 'welcome-screen';
+  welcome.innerHTML = `
+    <div class="welcome-content">
+      <div class="welcome-logo">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="4"/>
+          <line x1="12" y1="2" x2="12" y2="6"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/>
+          <line x1="18" y1="12" x2="22" y2="12"/>
+        </svg>
+      </div>
+      <h1 class="welcome-title">OpenMV IDE</h1>
+      <p class="welcome-subtitle">Machine Vision Made Simple</p>
+
+      <div class="welcome-actions">
+        <button class="welcome-btn" id="welcome-new">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          New File
+        </button>
+        <button class="welcome-btn" id="welcome-open">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          Open File
+        </button>
+      </div>
+
+      <div class="welcome-shortcuts">
+        <h2>Shortcuts</h2>
+        <div class="welcome-shortcut-grid">
+          <div class="ws-row"><span class="ws-key">Ctrl+E</span><span class="ws-desc">Connect / Disconnect</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+R</span><span class="ws-desc">Run / Stop Script</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+N</span><span class="ws-desc">New File</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+O</span><span class="ws-desc">Open File</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+S</span><span class="ws-desc">Save</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+W</span><span class="ws-desc">Close Tab</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+,</span><span class="ws-desc">Settings</span></div>
+          <div class="ws-row"><span class="ws-key">Cmd+=/-</span><span class="ws-desc">Zoom In / Out</span></div>
+        </div>
+      </div>
+
+      <p class="welcome-version">v0.1.0</p>
+    </div>
+  `;
+  editorArea.appendChild(welcome);
+
+  document.getElementById('welcome-new')!.onclick = () => { hideWelcome(); newFile(); };
+  document.getElementById('welcome-open')!.onclick = () => { hideWelcome(); openFileDialog(); };
+}
+
+function hideWelcome() {
+  const welcome = document.getElementById('welcome-screen');
+  if (welcome) welcome.style.display = 'none';
+  document.getElementById('monaco-editor')!.style.display = '';
+  document.getElementById('tab-bar')!.style.display = '';
+}
+
+// -- File management --
+interface OpenFile {
+  path: string | null; // null = untitled
+  model: monaco.editor.ITextModel;
+  modified: boolean;
+}
+
+let openFiles: OpenFile[] = [];
+let activeFileIndex = 0;
+let untitledCounter = 1;
+
+// Create editor (empty, will be populated by file management)
 const editor = monaco.editor.create(document.getElementById('monaco-editor')!, {
-  value: [
-    '# Untitled - OpenMV IDE',
-    '',
-    'import csi',
-    'import time',
-    '',
-    'csi0 = csi.CSI()',
-    'csi0.reset()',
-    'csi0.pixformat(csi.RGB565)',
-    'csi0.framesize(csi.QVGA)',
-    '',
-    'clock = time.clock()',
-    '',
-    'while True:',
-    '    clock.tick()',
-    '    img = csi0.snapshot()',
-    '    print(clock.fps())',
-    '',
-  ].join('\n'),
   language: 'python',
-  theme: 'openmv-dark',
+  theme: getEffectiveTheme() === 'dark' ? 'openmv-dark' : 'openmv-light',
   fontSize: 13,
   fontFamily: "'SF Mono', 'Menlo', 'Consolas', monospace",
   minimap: { enabled: false },
@@ -77,6 +188,253 @@ const editor = monaco.editor.create(document.getElementById('monaco-editor')!, {
   smoothScrolling: true,
   tabSize: 4,
   insertSpaces: true,
+});
+
+// Unbind Ctrl+E from Monaco (conflicts with Connect shortcut)
+monaco.editor.addKeybindingRules([
+  { keybinding: monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE, command: null },
+]);
+
+function fileName(f: OpenFile): string {
+  if (f.path) {
+    return f.path.split('/').pop() || f.path;
+  }
+  return 'untitled';
+}
+
+function createFile(path: string | null, content: string): OpenFile {
+  const model = monaco.editor.createModel(content, 'python');
+  const file: OpenFile = { path, model, modified: false };
+  model.onDidChangeContent(() => {
+    file.modified = true;
+    renderTabs();
+    scheduleSaveSettings();
+  });
+  openFiles.push(file);
+  return file;
+}
+
+function switchToFile(index: number) {
+  if (index < 0 || index >= openFiles.length) return;
+  activeFileIndex = index;
+  editor.setModel(openFiles[index].model);
+  renderTabs();
+  scheduleSaveSettings();
+}
+
+function renderTabs() {
+  const bar = document.getElementById('tab-bar')!;
+  bar.innerHTML = '';
+  openFiles.forEach((f, i) => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (i === activeFileIndex ? ' active' : '');
+
+    if (f.modified) {
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      tab.appendChild(dot);
+    }
+
+    const label = document.createElement('span');
+    label.textContent = fileName(f);
+    tab.appendChild(label);
+
+    const close = document.createElement('span');
+    close.className = 'close-tab';
+    close.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    close.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeFile(i); });
+    tab.appendChild(close);
+
+    tab.addEventListener('click', () => switchToFile(i));
+    tab.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); closeFile(i); } });
+    bar.appendChild(tab);
+  });
+}
+
+async function newFile() {
+  hideWelcome();
+  untitledCounter++;
+  createFile(null, '');
+  switchToFile(openFiles.length - 1);
+}
+
+async function openFileDialog() {
+  hideWelcome();
+  const path = await open({
+    multiple: false,
+    filters: [{ name: 'Python', extensions: ['py'] }, { name: 'All', extensions: ['*'] }],
+  });
+  if (!path) return;
+  const filePath = path as string;
+
+  // Check if already open
+  const existing = openFiles.findIndex(f => f.path === filePath);
+  if (existing >= 0) { switchToFile(existing); return; }
+
+  try {
+    const content = await invoke<string>('cmd_read_file', { path: filePath });
+    createFile(filePath, content);
+    switchToFile(openFiles.length - 1);
+  } catch (e: any) {
+    console.error('Open failed:', e);
+  }
+}
+
+async function saveFile() {
+  const f = openFiles[activeFileIndex];
+  if (!f) return;
+  if (!f.path) { await saveFileAs(); return; }
+  try {
+    await invoke('cmd_write_file', { path: f.path, content: f.model.getValue() });
+    f.modified = false;
+    renderTabs();
+  } catch (e: any) {
+    console.error('Save failed:', e);
+  }
+}
+
+async function saveFileAs() {
+  const f = openFiles[activeFileIndex];
+  if (!f) return;
+  const path = await save({
+    defaultPath: f.path || 'untitled.py',
+    filters: [{ name: 'Python', extensions: ['py'] }, { name: 'All', extensions: ['*'] }],
+  });
+  if (!path) return;
+  f.path = path;
+  try {
+    await invoke('cmd_write_file', { path: f.path, content: f.model.getValue() });
+    f.modified = false;
+    renderTabs();
+  } catch (e: any) {
+    console.error('Save failed:', e);
+  }
+}
+
+async function closeFile(index: number) {
+  if (index < 0 || index >= openFiles.length) return;
+  const f = openFiles[index];
+  // TODO: proper save dialog via tauri-plugin-dialog ask()
+  // For now, just close
+  f.model.dispose();
+  openFiles.splice(index, 1);
+  if (openFiles.length === 0) {
+    showWelcome();
+    return;
+  } else if (activeFileIndex >= openFiles.length) {
+    activeFileIndex = openFiles.length - 1;
+  } else if (activeFileIndex > index) {
+    activeFileIndex--;
+  }
+  switchToFile(activeFileIndex);
+  scheduleSaveSettings();
+}
+
+// -- Settings persistence --
+let saveSettingsTimer: number | null = null;
+
+function scheduleSaveSettings() {
+  if (saveSettingsTimer) clearTimeout(saveSettingsTimer);
+  saveSettingsTimer = window.setTimeout(saveSettings, 500);
+}
+
+async function saveSettings() {
+  try {
+    const s = await getStore();
+    const fb = document.querySelector('.fb-section') as HTMLElement;
+    const tools = document.querySelector('.tools-panel') as HTMLElement;
+    const rp = document.querySelector('.right-panel') as HTMLElement;
+    const rpH = rp?.getBoundingClientRect().height / uiScale;
+    const fbH = fb?.getBoundingClientRect().height / uiScale;
+    await s.set('ui', {
+      scale: uiScale,
+      theme: currentThemeSetting,
+      gridCols: layout.style.gridTemplateColumns || '',
+      gridRows: mainArea.style.gridTemplateRows || '',
+      fbRatio: rpH > 0 ? fbH / rpH : 0.5,
+    });
+    await s.set('editor', {
+      fontSize: editor.getOption(monaco.editor.EditorOption.fontSize),
+      tabSize: editor.getOption(monaco.editor.EditorOption.tabSize),
+    });
+    await s.set('shortcuts', shortcutOverrides);
+    await s.set('files', {
+      openFiles: openFiles.map(f => f.path).filter(Boolean),
+      activeFile: openFiles[activeFileIndex]?.path || null,
+    });
+    await s.save();
+  } catch (e) {
+    console.error('Failed to save settings:', e);
+  }
+}
+
+async function loadSettings() {
+  try {
+    const s = await getStore();
+    const ui = await s.get<{
+      scale?: number; theme?: ThemeSetting;
+      gridCols?: string; gridRows?: string;
+      fbRatio?: number;
+    }>('ui');
+    if (ui?.scale) uiScale = ui.scale;
+    if (ui?.theme) currentThemeSetting = ui.theme;
+    if (ui?.gridCols) document.querySelector<HTMLElement>('.ide-layout')!.style.gridTemplateColumns = ui.gridCols;
+    if (ui?.gridRows) document.querySelector<HTMLElement>('.main-area')!.style.gridTemplateRows = ui.gridRows;
+    // Defer FB/tools ratio until layout is rendered
+    if (ui?.fbRatio !== undefined) {
+      requestAnimationFrame(() => {
+        const fb = document.querySelector<HTMLElement>('.fb-section');
+        const tools = document.querySelector<HTMLElement>('.tools-panel');
+        const rp = document.querySelector<HTMLElement>('.right-panel');
+        if (fb && tools && rp) {
+          const rpH = rp.getBoundingClientRect().height / uiScale;
+          const fbH = Math.max(80, rpH * ui.fbRatio!);
+          const toolsH = Math.max(60, rpH - fbH - 4);
+          fb.style.flex = 'none'; fb.style.height = fbH + 'px';
+          tools.style.flex = 'none'; tools.style.height = toolsH + 'px';
+        }
+      });
+    }
+    const editorSettings = await s.get<{ fontSize?: number; tabSize?: number }>('editor');
+    if (editorSettings) {
+      if (editorSettings.fontSize) editor.updateOptions({ fontSize: editorSettings.fontSize });
+      if (editorSettings.tabSize) editor.updateOptions({ tabSize: editorSettings.tabSize });
+    }
+    const savedShortcuts = await s.get<Record<string, string>>('shortcuts');
+    if (savedShortcuts) shortcutOverrides = savedShortcuts;
+    const files = await s.get<{ openFiles?: string[]; activeFile?: string | null }>('files');
+    if (files?.openFiles && files.openFiles.length > 0) {
+      for (const path of files.openFiles) {
+        try {
+          const content = await invoke<string>('cmd_read_file', { path });
+          createFile(path, content);
+        } catch {
+          // File no longer exists or can't be read -- skip silently
+        }
+      }
+      if (openFiles.length > 0) {
+        const activeIdx = files.activeFile
+          ? openFiles.findIndex(f => f.path === files.activeFile)
+          : 0;
+        switchToFile(Math.max(0, activeIdx));
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+
+  // If no files were loaded, show welcome screen
+  if (openFiles.length === 0) {
+    showWelcome();
+  }
+}
+
+// -- Init: load settings then set up UI --
+loadSettings().then(() => {
+  setUIScale(uiScale);
+  applyTheme(currentThemeSetting);
+  renderTabs();
 });
 
 // Cursor position in status bar
@@ -147,12 +505,67 @@ setupResize('resize-h', 'col', (delta) => {
   layout.style.gridTemplateColumns = `56px ${spW} 1fr 4px ${w}px`;
 });
 
-// Vertical: between editor and terminal
-setupResize('resize-v', 'row', (delta) => {
+// Snap threshold in pixels
+const SNAP_PX = 15;
+
+function getToolsTopY(): number {
+  const tools = document.querySelector('.tools-panel') as HTMLElement;
+  return tools.getBoundingClientRect().top / uiScale;
+}
+
+function getTerminalTopY(): number {
   const tp = document.querySelector('.terminal-panel') as HTMLElement;
-  const h = Math.max(60, Math.min(600, tp.getBoundingClientRect().height / uiScale - delta));
-  mainArea.style.gridTemplateRows = `1fr 4px ${h}px`;
-});
+  return tp.getBoundingClientRect().top / uiScale;
+}
+
+function snapToolsToTerminal(toolsH: number): number {
+  // Calculate where the tools top would be vs where the terminal top is
+  const tools = document.querySelector('.tools-panel') as HTMLElement;
+  const rp = document.querySelector('.right-panel') as HTMLElement;
+  const rpRect = rp.getBoundingClientRect();
+  const toolsTop = (rpRect.bottom / uiScale) - toolsH;
+  const termTop = getTerminalTopY();
+  if (Math.abs(toolsTop - termTop) < SNAP_PX) {
+    // Snap: adjust tools height so its top aligns with terminal top
+    return (rpRect.bottom / uiScale) - termTop;
+  }
+  return toolsH;
+}
+
+// Vertical: between editor and terminal (manual, not setupResize -- same pattern as FB/tools)
+{
+  const handle = document.getElementById('resize-v');
+  if (handle) {
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      handle.classList.add('active');
+      const tp = document.querySelector('.terminal-panel') as HTMLElement;
+      const startY = e.clientY / uiScale;
+      const startH = tp.getBoundingClientRect().height / uiScale;
+      const maBottom = mainArea.getBoundingClientRect().bottom / uiScale;
+
+      const onMove = (ev: MouseEvent) => {
+        const delta = startY - ev.clientY / uiScale;
+        let h = Math.max(60, Math.min(600, startH + delta));
+        // Snap: where would terminal top be?
+        const termTop = maBottom - h;
+        const toolsTop = getToolsTopY();
+        if (Math.abs(termTop - toolsTop) < SNAP_PX) {
+          h = maBottom - toolsTop;
+        }
+        mainArea.style.gridTemplateRows = `32px 1fr 4px ${h}px`;
+      };
+      const onUp = () => {
+        handle.classList.remove('active');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        scheduleSaveSettings();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+}
 
 // Vertical: between framebuffer and histogram
 {
@@ -171,15 +584,18 @@ setupResize('resize-v', 'row', (delta) => {
       const onMove = (e: MouseEvent) => {
         const delta = e.clientY / uiScale - startY;
         const fbH = Math.max(80, Math.min(totalH - 80, startFbH + delta));
+        let toolsH = snapToolsToTerminal(totalH - fbH);
+        const adjFbH = totalH - toolsH;
         fb.style.flex = 'none';
         hist.style.flex = 'none';
-        fb.style.height = fbH + 'px';
-        hist.style.height = (totalH - fbH) + 'px';
+        fb.style.height = adjFbH + 'px';
+        hist.style.height = toolsH + 'px';
       };
       const onUp = () => {
         handle.classList.remove('active');
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        scheduleSaveSettings();
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
@@ -204,6 +620,7 @@ function setupResize(handleId: string, axis: 'col' | 'row', onDelta: (delta: num
       handle.classList.remove('active');
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      scheduleSaveSettings();
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -227,7 +644,17 @@ document.getElementById('btn-clear-term')?.addEventListener('click', () => {
   if (el) el.innerHTML = '';
 });
 
+// -- Connection and script state --
+let isConnected = false;
+let scriptRunning = false;
+
+const btnRunStop = document.getElementById('btn-run-stop')!;
+const iconPlay = btnRunStop.querySelector('.icon-play') as SVGElement;
+const iconStop = btnRunStop.querySelector('.icon-stop') as SVGElement;
+const runStopLabel = btnRunStop.querySelector('.run-stop-label') as HTMLElement;
+
 function setConnected(connected: boolean, info: string = 'Disconnected') {
+  isConnected = connected;
   const dot = document.querySelector('.status-dot') as HTMLElement;
   const label = document.getElementById('status-board');
   const btnConnect = document.getElementById('btn-connect');
@@ -238,109 +665,78 @@ function setConnected(connected: boolean, info: string = 'Disconnected') {
     const lbl = btnConnect.querySelector('span');
     if (lbl) lbl.textContent = connected ? 'Disconnect' : 'Connect';
   }
+  btnRunStop.classList.toggle('disabled', !connected);
+  if (!connected) setScriptRunning(false);
 }
 
-// -- Connection state --
-let isConnected = false;
+function setScriptRunning(running: boolean) {
+  scriptRunning = running;
+  btnRunStop.title = running ? 'Stop (Cmd+R)' : 'Run (Cmd+R)';
+  iconPlay.style.display = running ? 'none' : '';
+  iconStop.style.display = running ? '' : 'none';
+  if (runStopLabel) runStopLabel.textContent = running ? 'Stop' : 'Run';
+}
 
-// -- Connect/Disconnect button --
-document.getElementById('btn-connect')?.addEventListener('click', async () => {
-  if (isConnected) {
-    try {
-      isConnected = false;
-      stopPolling();
-      await new Promise(r => setTimeout(r, 100));
-      await invoke('cmd_disconnect');
-      setConnected(false);
-      termLog('Disconnected.', 'info-line');
-    } catch (e: any) {
-      termLog(`Disconnect failed: ${e}`, 'error-line');
-    }
-    return;
-  }
-
+async function doConnect() {
+  if (isConnected) return;
   try {
-    termLog('Scanning for OpenMV cameras...', 'info-line');
     const ports = await invoke<string[]>('cmd_list_ports');
-
-    if (ports.length === 0) {
-      termLog('No OpenMV cameras found.', 'error-line');
-      return;
-    }
-
-    termLog(`Found: ${ports.join(', ')}`, 'info-line');
-    termLog(`Connecting to ${ports[0]}...`, 'info-line');
+    if (ports.length === 0) return;
 
     const resp = await invoke<any>('cmd_connect', { port: ports[0] });
-    isConnected = true;
     const info = resp.data;
-    termLog(`Connected: ${info.board} (fw ${info.firmware})`, 'info-line');
     setConnected(true, `${info.board} | ${info.port} | v${info.firmware}`);
-    try { await invoke('cmd_enable_streaming', { enable: true }); } catch(_) {}
+
+    // Stop any running script from a previous session
+    try { await invoke('cmd_stop_script'); } catch (_) {}
+    // Enable streaming and start polling
+    try { await invoke('cmd_enable_streaming', { enable: true }); } catch (_) {}
     startPolling();
   } catch (e: any) {
-    termLog(`Connection failed: ${e}`, 'error-line');
+    console.error('Connect failed:', e);
   }
-});
+}
 
-// -- Run/Stop toggle --
-let scriptRunning = false;
-const btnRunStop = document.getElementById('btn-run-stop')!;
-const iconPlay = btnRunStop.querySelector('.icon-play') as SVGElement;
-const iconStop = btnRunStop.querySelector('.icon-stop') as SVGElement;
-const runStopLabel = btnRunStop.querySelector('.run-stop-label') as HTMLElement;
+async function doDisconnect() {
+  if (!isConnected) return;
+  stopPolling();
+  try { await invoke('cmd_stop_script'); } catch (_) {}
+  try { await invoke('cmd_enable_streaming', { enable: false }); } catch (_) {}
+  try { await invoke('cmd_disconnect'); } catch (_) {}
+  setConnected(false);
+}
 
-function updateRunStopButton() {
-  if (scriptRunning) {
-    btnRunStop.title = 'Stop (Cmd+R)';
-    iconPlay.style.display = 'none';
-    iconStop.style.display = '';
-    if (runStopLabel) runStopLabel.textContent = 'Stop';
-  } else {
-    btnRunStop.title = 'Run (Cmd+R)';
-    iconPlay.style.display = '';
-    iconStop.style.display = 'none';
-    if (runStopLabel) runStopLabel.textContent = 'Run';
-  }
+async function toggleConnect() {
+  if (isConnected) await doDisconnect();
+  else await doConnect();
 }
 
 async function runScript() {
+  if (!isConnected) return;
   try {
-    const script = editor.getValue();
-    termLog('Running script...', 'info-line');
-    await invoke('cmd_run_script', { script });
-    termLog('Script started.', 'info-line');
-    await invoke('cmd_enable_streaming', { enable: true });
-    scriptRunning = true;
-    updateRunStopButton();
-    startPolling();
+    await invoke('cmd_run_script', { script: editor.getValue() });
+    setScriptRunning(true);
   } catch (e: any) {
-    termLog(`Run failed: ${e}`, 'error-line');
+    console.error('Run failed:', e);
   }
 }
 
 async function stopScript() {
-  stopPolling();
-  await new Promise(r => setTimeout(r, 200));
+  if (!isConnected) return;
   try {
-    await invoke('cmd_enable_streaming', { enable: false });
     await invoke('cmd_stop_script');
-    termLog('Script stopped.', 'info-line');
-    scriptRunning = false;
-    updateRunStopButton();
+    setScriptRunning(false);
   } catch (e: any) {
-    termLog(`Stop failed: ${e}`, 'error-line');
+    console.error('Stop failed:', e);
   }
 }
 
 async function toggleRunStop() {
-  if (scriptRunning) {
-    await stopScript();
-  } else {
-    await runScript();
-  }
+  if (scriptRunning) await stopScript();
+  else await runScript();
 }
 
+document.getElementById('btn-connect')?.addEventListener('click', toggleConnect);
 btnRunStop.addEventListener('click', toggleRunStop);
 
 // -- Unified polling (stdout + frame in one call) --
@@ -448,34 +844,107 @@ function showCanvas() {
 let terminalFontSize = 12;
 const termContent = document.querySelector('.terminal-content') as HTMLElement;
 
-document.addEventListener('keydown', (e) => {
-  // Run/Stop
-  if (e.key === 'F5' || e.key === 'F6' || (e.metaKey && e.key === 'r')) {
-    e.preventDefault();
-    toggleRunStop();
-    return;
-  }
+// -- Keyboard shortcuts system --
+interface Shortcut {
+  key: string;       // e.g. "r", "s", "e", "F5"
+  meta?: boolean;    // Cmd on mac
+  ctrl?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+}
 
-  // Zoom in/out
-  if (e.metaKey && (e.key === '=' || e.key === '+')) {
-    e.preventDefault();
+interface ShortcutBinding {
+  id: string;
+  label: string;
+  defaults: Shortcut[];  // multiple bindings allowed
+  action: () => void;
+}
+
+function shortcutToString(s: Shortcut): string {
+  const parts: string[] = [];
+  if (s.meta) parts.push('Cmd');
+  if (s.ctrl) parts.push('Ctrl');
+  if (s.alt) parts.push('Alt');
+  if (s.shift) parts.push('Shift');
+  parts.push(s.key.length === 1 ? s.key.toUpperCase() : s.key);
+  return parts.join('+');
+}
+
+function parseShortcutString(str: string): Shortcut {
+  const parts = str.split('+').map(s => s.trim());
+  const s: Shortcut = { key: '' };
+  for (const p of parts) {
+    const lower = p.toLowerCase();
+    if (lower === 'cmd' || lower === 'meta') s.meta = true;
+    else if (lower === 'ctrl') s.ctrl = true;
+    else if (lower === 'shift') s.shift = true;
+    else if (lower === 'alt' || lower === 'opt') s.alt = true;
+    else s.key = p.length === 1 ? p.toLowerCase() : p;
+  }
+  return s;
+}
+
+function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
+  const keyMatch = e.key.toLowerCase() === s.key.toLowerCase() || e.key === s.key;
+  return keyMatch
+    && (!!s.meta === e.metaKey)
+    && (!!s.ctrl === e.ctrlKey)
+    && (!!s.shift === e.shiftKey)
+    && (!!s.alt === e.altKey);
+}
+
+// User overrides loaded from settings (shortcut id -> shortcut string)
+let shortcutOverrides: Record<string, string> = {};
+
+const shortcutBindings: ShortcutBinding[] = [
+  { id: 'run-stop', label: 'Run / Stop', defaults: [{ meta: true, key: 'r' }, { key: 'F5' }, { key: 'F6' }], action: toggleRunStop },
+  { id: 'connect', label: 'Connect / Disconnect', defaults: [{ ctrl: true, key: 'e' }], action: toggleConnect },
+  { id: 'new-file', label: 'New File', defaults: [{ meta: true, key: 'n' }], action: newFile },
+  { id: 'open-file', label: 'Open File', defaults: [{ meta: true, key: 'o' }], action: openFileDialog },
+  { id: 'save', label: 'Save', defaults: [{ meta: true, key: 's' }], action: saveFile },
+  { id: 'save-as', label: 'Save As', defaults: [{ meta: true, shift: true, key: 's' }], action: saveFileAs },
+  { id: 'close-tab', label: 'Close Tab', defaults: [{ meta: true, key: 'w' }], action: () => closeFile(activeFileIndex) },
+  { id: 'zoom-in', label: 'Zoom In', defaults: [{ meta: true, key: '=' }], action: () => {
     const sz = editor.getOption(monaco.editor.EditorOption.fontSize);
     editor.updateOptions({ fontSize: sz + 1 });
     terminalFontSize = Math.min(32, terminalFontSize + 1);
     termContent.style.fontSize = terminalFontSize + 'px';
-  }
-  if (e.metaKey && e.key === '-') {
-    e.preventDefault();
+  }},
+  { id: 'zoom-out', label: 'Zoom Out', defaults: [{ meta: true, key: '-' }], action: () => {
     const sz = editor.getOption(monaco.editor.EditorOption.fontSize);
     editor.updateOptions({ fontSize: Math.max(8, sz - 1) });
     terminalFontSize = Math.max(8, terminalFontSize - 1);
     termContent.style.fontSize = terminalFontSize + 'px';
-  }
-  if (e.metaKey && e.key === '0') {
-    e.preventDefault();
+  }},
+  { id: 'zoom-reset', label: 'Reset Zoom', defaults: [{ meta: true, key: '0' }], action: () => {
     editor.updateOptions({ fontSize: 13 });
     terminalFontSize = 12;
     termContent.style.fontSize = terminalFontSize + 'px';
+  }},
+  { id: 'settings', label: 'Settings', defaults: [{ meta: true, key: ',' }], action: openSettings },
+];
+
+function getActiveShortcuts(binding: ShortcutBinding): Shortcut[] {
+  const override = shortcutOverrides[binding.id];
+  if (override) return [parseShortcutString(override)];
+  return binding.defaults;
+}
+
+function getShortcutDisplay(binding: ShortcutBinding): string {
+  const shortcuts = getActiveShortcuts(binding);
+  return shortcuts.map(shortcutToString).join(' / ');
+}
+
+document.addEventListener('keydown', (e) => {
+  for (const binding of shortcutBindings) {
+    const shortcuts = getActiveShortcuts(binding);
+    for (const s of shortcuts) {
+      if (matchesShortcut(e, s)) {
+        e.preventDefault();
+        binding.action();
+        return;
+      }
+    }
   }
 });
 
@@ -519,6 +988,10 @@ function openSettings() {
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           <span>Frame Buffer</span>
         </button>
+        <button class="settings-icon-tab" data-stab="shortcuts">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01M10 16h4"/></svg>
+          <span>Shortcuts</span>
+        </button>
       </div>
       <div class="settings-divider"></div>
 
@@ -532,14 +1005,15 @@ function openSettings() {
         </div>
         <div class="pref-row">
           <span class="pref-label">Theme:</span>
-          <select class="pref-select">
-            <option selected>Dark</option>
-            <option>Light</option>
-          </select>
+          <div class="radio-group">
+            <label class="radio-opt"><input type="radio" name="theme" value="light" ${currentThemeSetting === 'light' ? 'checked' : ''}> Light</label>
+            <label class="radio-opt"><input type="radio" name="theme" value="dark" ${currentThemeSetting === 'dark' ? 'checked' : ''}> Dark</label>
+            <label class="radio-opt"><input type="radio" name="theme" value="system" ${currentThemeSetting === 'system' ? 'checked' : ''}> System</label>
+          </div>
         </div>
         <div class="pref-row">
-          <span class="pref-label">Check for updates:</span>
-          <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
+          <span class="pref-label"></span>
+          <button class="pref-btn" id="set-reset">Reset All Settings</button>
         </div>
       </div>
 
@@ -599,6 +1073,22 @@ function openSettings() {
           <label class="switch"><input type="checkbox"><span class="switch-slider"></span></label>
         </div>
       </div>
+
+      <div class="settings-pane" data-stab="shortcuts" style="display:none">
+        <div class="shortcuts-list">
+          ${shortcutBindings.map(b => `
+            <div class="shortcut-row">
+              <span class="shortcut-action">${b.label}</span>
+              <input class="shortcut-input" data-sid="${b.id}"
+                value="${shortcutOverrides[b.id] || getShortcutDisplay(b)}"
+                placeholder="${b.defaults.map(shortcutToString).join(' / ')}"
+                readonly>
+              ${shortcutOverrides[b.id] ? `<button class="shortcut-reset" data-sid="${b.id}" title="Reset to default">x</button>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <p class="shortcut-hint">Click a shortcut, then press the new key combination to rebind.</p>
+      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -645,6 +1135,75 @@ function openSettings() {
   document.getElementById('set-line-numbers')!.onchange = (e) => {
     editor.updateOptions({ lineNumbers: (e.target as HTMLInputElement).checked ? 'on' : 'off' });
   };
+  // Theme radios
+  overlay.querySelectorAll('input[name="theme"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      applyTheme((radio as HTMLInputElement).value as ThemeSetting);
+    });
+  });
+  // Shortcut recording
+  overlay.querySelectorAll('.shortcut-input').forEach(input => {
+    input.addEventListener('click', () => {
+      const el = input as HTMLInputElement;
+      el.value = 'Press keys...';
+      el.removeAttribute('readonly');
+      const handler = (e: KeyboardEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+          const sid = el.dataset.sid!;
+          el.value = shortcutOverrides[sid] || getShortcutDisplay(shortcutBindings.find(b => b.id === sid)!);
+          el.setAttribute('readonly', '');
+          document.removeEventListener('keydown', handler, true);
+          return;
+        }
+        // Ignore modifier-only presses
+        if (['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) return;
+
+        const s: Shortcut = { key: e.key.length === 1 ? e.key.toLowerCase() : e.key };
+        if (e.metaKey) s.meta = true;
+        if (e.ctrlKey) s.ctrl = true;
+        if (e.shiftKey) s.shift = true;
+        if (e.altKey) s.alt = true;
+
+        const str = shortcutToString(s);
+        const sid = el.dataset.sid!;
+        shortcutOverrides[sid] = str;
+        el.value = str;
+        el.setAttribute('readonly', '');
+        document.removeEventListener('keydown', handler, true);
+        scheduleSaveSettings();
+        // Re-render to show reset button
+        openSettings();
+      };
+      document.addEventListener('keydown', handler, true);
+    });
+  });
+
+  // Shortcut reset buttons
+  overlay.querySelectorAll('.shortcut-reset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = (btn as HTMLElement).dataset.sid!;
+      delete shortcutOverrides[sid];
+      scheduleSaveSettings();
+      openSettings();
+    });
+  });
+
+  // Reset button
+  document.getElementById('set-reset')!.onclick = async () => {
+    const s = await getStore();
+    await s.clear();
+    await s.save();
+    uiScale = 1.2;
+    currentThemeSetting = 'dark';
+    shortcutOverrides = {};
+    applyTheme('dark');
+    setUIScale(1.2);
+    editor.updateOptions({ fontSize: 13, tabSize: 4, wordWrap: 'off', minimap: { enabled: false }, lineNumbers: 'on' });
+    overlay.remove();
+    // settings reset
+  };
 }
 
 // Settings sidebar button opens dialog
@@ -674,7 +1233,19 @@ listen<string>('menu-action', (event) => {
     case 'settings':
       openSettings();
       break;
+    case 'new':
+      newFile();
+      break;
+    case 'open':
+      openFileDialog();
+      break;
+    case 'save':
+      saveFile();
+      break;
+    case 'save-as':
+      saveFileAs();
+      break;
     default:
-      termLog(`[Menu] ${action}`, 'info-line');
+      console.log('Menu:', action);
   }
 });

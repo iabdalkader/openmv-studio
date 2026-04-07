@@ -24,27 +24,27 @@ pub const MIN_PAYLOAD_SIZE: usize = 52; // 64 - 10 - 2
 #[repr(u8)]
 pub enum Opcode {
     // Protocol
-    ProtoSync    = 0x00,
+    ProtoSync = 0x00,
     ProtoGetCaps = 0x01,
     ProtoSetCaps = 0x02,
-    ProtoStats   = 0x03,
+    ProtoStats = 0x03,
     ProtoVersion = 0x04,
     // System
-    SysReset     = 0x10,
-    SysBoot      = 0x11,
-    SysInfo      = 0x12,
-    SysEvent     = 0x13,
+    SysReset = 0x10,
+    SysBoot = 0x11,
+    SysInfo = 0x12,
+    SysEvent = 0x13,
     // Channel
-    ChannelList   = 0x20,
-    ChannelPoll   = 0x21,
-    ChannelLock   = 0x22,
+    ChannelList = 0x20,
+    ChannelPoll = 0x21,
+    ChannelLock = 0x22,
     ChannelUnlock = 0x23,
-    ChannelShape  = 0x24,
-    ChannelSize   = 0x25,
-    ChannelRead   = 0x26,
-    ChannelWrite  = 0x27,
-    ChannelIoctl  = 0x28,
-    ChannelEvent  = 0x29,
+    ChannelShape = 0x24,
+    ChannelSize = 0x25,
+    ChannelRead = 0x26,
+    ChannelWrite = 0x27,
+    ChannelIoctl = 0x28,
+    ChannelEvent = 0x29,
 }
 
 impl Opcode {
@@ -69,7 +69,7 @@ impl Opcode {
             0x27 => Some(Self::ChannelWrite),
             0x28 => Some(Self::ChannelIoctl),
             0x29 => Some(Self::ChannelEvent),
-            _    => None,
+            _ => None,
         }
     }
 }
@@ -77,16 +77,16 @@ impl Opcode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Status {
-    Success  = 0x00,
-    Failed   = 0x01,
-    Invalid  = 0x02,
-    Timeout  = 0x03,
-    Busy     = 0x04,
+    Success = 0x00,
+    Failed = 0x01,
+    Invalid = 0x02,
+    Timeout = 0x03,
+    Busy = 0x04,
     Checksum = 0x05,
     Sequence = 0x06,
     Overflow = 0x07,
     Fragment = 0x08,
-    Unknown  = 0x09,
+    Unknown = 0x09,
 }
 
 impl Status {
@@ -102,7 +102,7 @@ impl Status {
             0x07 => Some(Self::Overflow),
             0x08 => Some(Self::Fragment),
             0x09 => Some(Self::Unknown),
-            _    => None,
+            _ => None,
         }
     }
 }
@@ -110,25 +110,25 @@ impl Status {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum EventType {
-    ChannelRegistered   = 0x00,
+    ChannelRegistered = 0x00,
     ChannelUnregistered = 0x01,
-    SoftReboot          = 0x02,
+    SoftReboot = 0x02,
 }
 
 // Channel IOCTL commands
 pub mod ioctl {
     // stdin
-    pub const STDIN_STOP:  u32 = 0x01;
-    pub const STDIN_EXEC:  u32 = 0x02;
+    pub const STDIN_STOP: u32 = 0x01;
+    pub const STDIN_EXEC: u32 = 0x02;
     pub const STDIN_RESET: u32 = 0x03;
     // stream
-    pub const STREAM_CTRL:     u32 = 0x00;
+    pub const STREAM_CTRL: u32 = 0x00;
     pub const STREAM_RAW_CTRL: u32 = 0x01;
-    pub const STREAM_RAW_CFG:  u32 = 0x02;
+    pub const STREAM_RAW_CFG: u32 = 0x02;
     // profile
-    pub const PROFILE_MODE:      u32 = 0x00;
+    pub const PROFILE_MODE: u32 = 0x00;
     pub const PROFILE_SET_EVENT: u32 = 0x01;
-    pub const PROFILE_RESET:     u32 = 0x02;
+    pub const PROFILE_RESET: u32 = 0x02;
 }
 
 // Known USB VID/PID pairs for OpenMV cameras
