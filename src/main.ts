@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 // Monaco workers (required for language features)
 self.MonacoEnvironment = {
@@ -84,10 +85,25 @@ editor.onDidChangeCursorPosition((e) => {
   if (el) el.textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
 });
 
-// Histogram toggle
-document.getElementById('hist-toggle')?.addEventListener('click', function() {
-  this.classList.toggle('open');
-  document.getElementById('hist-body')?.classList.toggle('open');
+// Tools panel tab switching
+document.querySelectorAll('.tools-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const tool = (tab as HTMLElement).dataset.tool!;
+    document.querySelectorAll('.tools-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.tools-body').forEach(b => (b as HTMLElement).style.display = 'none');
+    const body = document.querySelector(`.tools-body[data-tool="${tool}"]`) as HTMLElement;
+    if (body) body.style.display = '';
+  });
+});
+
+// Camera controls -- update value labels on slider change
+document.querySelectorAll('.ctrl-slider').forEach(slider => {
+  slider.addEventListener('input', () => {
+    const val = (slider as HTMLInputElement).value;
+    const label = (slider as HTMLElement).nextElementSibling as HTMLElement;
+    if (label) label.textContent = val;
+  });
 });
 
 // Sidebar nav buttons (Files, Examples, Docs, Settings -- not Connect/Run)
@@ -126,7 +142,7 @@ const mainArea = document.querySelector('.main-area') as HTMLElement;
 // Horizontal: between main area and right panel
 setupResize('resize-h', 'col', (delta) => {
   const rp = document.querySelector('.right-panel') as HTMLElement;
-  const w = Math.max(200, Math.min(800, rp.getBoundingClientRect().width - delta));
+  const w = Math.max(200, Math.min(800, rp.getBoundingClientRect().width / uiScale - delta));
   const spW = sidePanel.classList.contains('visible') ? '220px' : '0px';
   layout.style.gridTemplateColumns = `56px ${spW} 1fr 4px ${w}px`;
 });
@@ -134,7 +150,7 @@ setupResize('resize-h', 'col', (delta) => {
 // Vertical: between editor and terminal
 setupResize('resize-v', 'row', (delta) => {
   const tp = document.querySelector('.terminal-panel') as HTMLElement;
-  const h = Math.max(60, Math.min(600, tp.getBoundingClientRect().height - delta));
+  const h = Math.max(60, Math.min(600, tp.getBoundingClientRect().height / uiScale - delta));
   mainArea.style.gridTemplateRows = `1fr 4px ${h}px`;
 });
 
@@ -146,14 +162,14 @@ setupResize('resize-v', 'row', (delta) => {
       e.preventDefault();
       handle.classList.add('active');
       const fb = document.querySelector('.fb-section') as HTMLElement;
-      const hist = document.querySelector('.histogram-section') as HTMLElement;
-      const startY = e.clientY;
-      const startFbH = fb.getBoundingClientRect().height;
-      const startHistH = hist.getBoundingClientRect().height;
+      const hist = document.querySelector('.tools-panel') as HTMLElement;
+      const startY = e.clientY / uiScale;
+      const startFbH = fb.getBoundingClientRect().height / uiScale;
+      const startHistH = hist.getBoundingClientRect().height / uiScale;
       const totalH = startFbH + startHistH;
 
       const onMove = (e: MouseEvent) => {
-        const delta = e.clientY - startY;
+        const delta = e.clientY / uiScale - startY;
         const fbH = Math.max(80, Math.min(totalH - 80, startFbH + delta));
         fb.style.flex = 'none';
         hist.style.flex = 'none';
@@ -177,10 +193,10 @@ function setupResize(handleId: string, axis: 'col' | 'row', onDelta: (delta: num
   handle.addEventListener('mousedown', (e) => {
     e.preventDefault();
     handle.classList.add('active');
-    const startPos = axis === 'col' ? e.clientX : e.clientY;
+    const startPos = (axis === 'col' ? e.clientX : e.clientY) / uiScale;
     let lastPos = startPos;
     const onMove = (e: MouseEvent) => {
-      const pos = axis === 'col' ? e.clientX : e.clientY;
+      const pos = (axis === 'col' ? e.clientX : e.clientY) / uiScale;
       onDelta(pos - lastPos);
       lastPos = pos;
     };
@@ -460,5 +476,205 @@ document.addEventListener('keydown', (e) => {
     editor.updateOptions({ fontSize: 13 });
     terminalFontSize = 12;
     termContent.style.fontSize = terminalFontSize + 'px';
+  }
+});
+
+// -- UI Scaling --
+let uiScale = 1.2;
+
+function setUIScale(scale: number) {
+  uiScale = Math.max(0.5, Math.min(2.0, scale));
+  (document.body.style as any).zoom = String(uiScale);
+  // Compensate: zoom shrinks/grows content but viewport stays the same
+  document.body.style.width = (100 / uiScale) + 'vw';
+  document.body.style.height = (100 / uiScale) + 'vh';
+  document.querySelector<HTMLElement>('.ide-layout')!.style.height = (100 / uiScale) + 'vh';
+}
+setUIScale(uiScale);
+
+// -- Settings dialog --
+function openSettings() {
+  document.getElementById('settings-overlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'settings-overlay';
+  overlay.className = 'settings-overlay';
+  overlay.innerHTML = `
+    <div class="settings-dialog">
+      <div class="settings-titlebar">General</div>
+      <div class="settings-icon-tabs">
+        <button class="settings-icon-tab active" data-stab="general">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          <span>General</span>
+        </button>
+        <button class="settings-icon-tab" data-stab="editor">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span>Editor</span>
+        </button>
+        <button class="settings-icon-tab" data-stab="connection">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          <span>Connection</span>
+        </button>
+        <button class="settings-icon-tab" data-stab="framebuffer">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <span>Frame Buffer</span>
+        </button>
+      </div>
+      <div class="settings-divider"></div>
+
+      <div class="settings-pane" data-stab="general">
+        <div class="pref-row">
+          <span class="pref-label">UI Scale:</span>
+          <div class="scale-control">
+            <input type="range" id="set-scale" min="50" max="200" step="10" value="${Math.round(uiScale * 100)}">
+            <span class="scale-value" id="scale-label">${Math.round(uiScale * 100)}%</span>
+          </div>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Theme:</span>
+          <select class="pref-select">
+            <option selected>Dark</option>
+            <option>Light</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Check for updates:</span>
+          <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
+        </div>
+      </div>
+
+      <div class="settings-pane" data-stab="editor" style="display:none">
+        <div class="pref-row">
+          <span class="pref-label">Font Size:</span>
+          <input type="number" class="pref-input" id="set-font-size" value="${editor.getOption(monaco.editor.EditorOption.fontSize)}" min="8" max="32">
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Tab Size:</span>
+          <input type="number" class="pref-input" id="set-tab-size" value="4" min="2" max="8">
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Word Wrap:</span>
+          <label class="switch"><input type="checkbox" id="set-word-wrap"><span class="switch-slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Minimap:</span>
+          <label class="switch"><input type="checkbox" id="set-minimap"><span class="switch-slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Line Numbers:</span>
+          <label class="switch"><input type="checkbox" checked id="set-line-numbers"><span class="switch-slider"></span></label>
+        </div>
+      </div>
+
+      <div class="settings-pane" data-stab="connection" style="display:none">
+        <div class="pref-row">
+          <span class="pref-label">Baudrate:</span>
+          <select class="pref-select" id="set-baudrate">
+            <option selected>921600</option>
+            <option>460800</option>
+            <option>115200</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Auto Connect:</span>
+          <label class="switch"><input type="checkbox"><span class="switch-slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Auto Run:</span>
+          <label class="switch"><input type="checkbox"><span class="switch-slider"></span></label>
+        </div>
+      </div>
+
+      <div class="settings-pane" data-stab="framebuffer" style="display:none">
+        <div class="pref-row">
+          <span class="pref-label">JPEG Quality:</span>
+          <input type="number" class="pref-input" value="80" min="10" max="100">
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Auto Zoom:</span>
+          <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <span class="pref-label">Show Crosshair:</span>
+          <label class="switch"><input type="checkbox"><span class="switch-slider"></span></label>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Close
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+  });
+
+  // Tab switching
+  const titlebar = overlay.querySelector('.settings-titlebar')!;
+  overlay.querySelectorAll('.settings-icon-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const id = (tab as HTMLElement).dataset.stab!;
+      overlay.querySelectorAll('.settings-icon-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      overlay.querySelectorAll('.settings-pane').forEach(p => (p as HTMLElement).style.display = 'none');
+      (overlay.querySelector(`.settings-pane[data-stab="${id}"]`) as HTMLElement).style.display = '';
+      titlebar.textContent = (tab.querySelector('span') as HTMLElement).textContent;
+    });
+  });
+
+  // Live-apply
+  const scaleSlider = document.getElementById('set-scale') as HTMLInputElement;
+  const scaleLabel = document.getElementById('scale-label')!;
+  scaleSlider.oninput = () => {
+    const v = parseInt(scaleSlider.value);
+    scaleLabel.textContent = v + '%';
+    setUIScale(v / 100);
+  };
+  document.getElementById('set-font-size')!.onchange = (e) => {
+    editor.updateOptions({ fontSize: parseInt((e.target as HTMLInputElement).value) });
+  };
+  document.getElementById('set-tab-size')!.onchange = (e) => {
+    editor.updateOptions({ tabSize: parseInt((e.target as HTMLInputElement).value) });
+  };
+  document.getElementById('set-word-wrap')!.onchange = (e) => {
+    editor.updateOptions({ wordWrap: (e.target as HTMLInputElement).checked ? 'on' : 'off' });
+  };
+  document.getElementById('set-minimap')!.onchange = (e) => {
+    editor.updateOptions({ minimap: { enabled: (e.target as HTMLInputElement).checked } });
+  };
+  document.getElementById('set-line-numbers')!.onchange = (e) => {
+    editor.updateOptions({ lineNumbers: (e.target as HTMLInputElement).checked ? 'on' : 'off' });
+  };
+}
+
+// Settings sidebar button opens dialog
+document.getElementById('btn-settings')?.addEventListener('click', () => openSettings());
+
+// -- System menu events --
+listen<string>('menu-action', (event) => {
+  const action = event.payload;
+  switch (action) {
+    case 'zoom-in': {
+      const sz = editor.getOption(monaco.editor.EditorOption.fontSize);
+      editor.updateOptions({ fontSize: sz + 1 });
+      terminalFontSize = Math.min(32, terminalFontSize + 1);
+      termContent.style.fontSize = terminalFontSize + 'px';
+      break;
+    }
+    case 'zoom-out': {
+      const sz = editor.getOption(monaco.editor.EditorOption.fontSize);
+      editor.updateOptions({ fontSize: Math.max(8, sz - 1) });
+      terminalFontSize = Math.max(8, terminalFontSize - 1);
+      termContent.style.fontSize = terminalFontSize + 'px';
+      break;
+    }
+    case 'zoom-reset':
+      setUIScale(1.0);
+      break;
+    case 'settings':
+      openSettings();
+      break;
+    default:
+      termLog(`[Menu] ${action}`, 'info-line');
   }
 });

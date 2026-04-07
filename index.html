@@ -32,7 +32,7 @@
         <svg class="icon-stop" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
         <span class="run-stop-label">Run</span>
       </button>
-      <button class="sidebar-btn" data-panel="settings" title="Settings">
+      <button class="sidebar-btn" id="btn-settings" title="Settings">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
@@ -145,53 +145,7 @@
           </div>
         </div>
 
-        <!-- Settings panel -->
-        <div class="side-panel-content" data-panel="settings" style="display:none">
-          <div class="side-panel-header">Settings</div>
-          <div class="settings-list">
-            <div class="settings-group">
-              <div class="settings-group-title">Editor</div>
-              <div class="settings-row">
-                <span>Font Size</span>
-                <input type="number" class="settings-input" value="13" min="8" max="32">
-              </div>
-              <div class="settings-row">
-                <span>Tab Size</span>
-                <input type="number" class="settings-input" value="4" min="2" max="8">
-              </div>
-              <div class="settings-row">
-                <span>Word Wrap</span>
-                <label class="settings-toggle"><input type="checkbox"><span class="toggle-track"></span></label>
-              </div>
-            </div>
-            <div class="settings-group">
-              <div class="settings-group-title">Connection</div>
-              <div class="settings-row">
-                <span>Baudrate</span>
-                <select class="settings-select">
-                  <option>921600</option>
-                  <option>115200</option>
-                  <option>460800</option>
-                </select>
-              </div>
-              <div class="settings-row">
-                <span>Auto Connect</span>
-                <label class="settings-toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
-              </div>
-            </div>
-            <div class="settings-group">
-              <div class="settings-group-title">Frame Buffer</div>
-              <div class="settings-row">
-                <span>JPEG Quality</span>
-                <input type="number" class="settings-input" value="80" min="10" max="100">
-              </div>
-              <div class="settings-row">
-                <span>High-DPI Scaling</span>
-                <label class="settings-toggle"><input type="checkbox"><span class="toggle-track"></span></label>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Settings is now a dialog, not a side panel -->
     </div>
 
     <!-- MAIN AREA -->
@@ -251,19 +205,20 @@
         </div>
       </div>
 
-      <!-- Resize handle between FB and histogram -->
+      <!-- Resize handle between FB and tools panel -->
       <div class="resize-handle-v" id="resize-fb-hist"></div>
 
-      <!-- Histogram -->
-      <div class="histogram-section">
-        <button class="histogram-toggle open" id="hist-toggle">
-          <div class="ht-left">
-            <span class="ht-label">Histogram</span>
-            <span class="ht-badge">RGB</span>
-          </div>
-          <svg class="ht-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <div class="histogram-body open" id="hist-body">
+      <!-- Tools panel (tabbed) -->
+      <div class="tools-panel">
+        <div class="tools-tabs">
+          <button class="tools-tab active" data-tool="histogram">Histogram</button>
+          <button class="tools-tab" data-tool="controls">Controls</button>
+          <button class="tools-tab" data-tool="perf">Performance</button>
+          <button class="tools-tab" data-tool="stats">Stats</button>
+        </div>
+
+        <!-- Histogram tab -->
+        <div class="tools-body" data-tool="histogram">
           <div class="hist-channels">
             <div class="hist-channel ch-r"><span class="hist-ch-label">R</span></div>
             <div class="hist-channel ch-g"><span class="hist-ch-label">G</span></div>
@@ -276,6 +231,93 @@
             <div class="hist-stat"><span class="stat-label">Min</span><span class="stat-val">0</span></div>
             <div class="hist-stat"><span class="stat-label">Max</span><span class="stat-val">0</span></div>
             <div class="hist-stat"><span class="stat-label">Mode</span><span class="stat-val">0</span></div>
+          </div>
+        </div>
+
+        <!-- Camera Controls tab -->
+        <div class="tools-body" data-tool="controls" style="display:none">
+          <div class="ctrl-group">
+            <div class="ctrl-row">
+              <span class="ctrl-label">Exposure</span>
+              <input type="range" class="ctrl-slider" min="0" max="255" value="128">
+              <span class="ctrl-val">128</span>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Gain</span>
+              <input type="range" class="ctrl-slider" min="0" max="255" value="64">
+              <span class="ctrl-val">64</span>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Contrast</span>
+              <input type="range" class="ctrl-slider" min="-3" max="3" value="0">
+              <span class="ctrl-val">0</span>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Brightness</span>
+              <input type="range" class="ctrl-slider" min="-3" max="3" value="0">
+              <span class="ctrl-val">0</span>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Saturation</span>
+              <input type="range" class="ctrl-slider" min="-3" max="3" value="0">
+              <span class="ctrl-val">0</span>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">White Bal.</span>
+              <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Auto Exposure</span>
+              <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Auto Gain</span>
+              <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance tab -->
+        <div class="tools-body" data-tool="perf" style="display:none">
+          <div class="perf-grid">
+            <div class="perf-card">
+              <div class="perf-card-label">FPS</div>
+              <div class="perf-card-value" id="perf-fps">--</div>
+              <canvas class="perf-spark" id="perf-fps-spark" width="120" height="32"></canvas>
+            </div>
+            <div class="perf-card">
+              <div class="perf-card-label">Frame Size</div>
+              <div class="perf-card-value" id="perf-frame-size">-- KB</div>
+              <canvas class="perf-spark" id="perf-size-spark" width="120" height="32"></canvas>
+            </div>
+            <div class="perf-card">
+              <div class="perf-card-label">Transfer</div>
+              <div class="perf-card-value" id="perf-transfer">-- ms</div>
+              <canvas class="perf-spark" id="perf-xfer-spark" width="120" height="32"></canvas>
+            </div>
+            <div class="perf-card">
+              <div class="perf-card-label">Dropped</div>
+              <div class="perf-card-value" id="perf-dropped">0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Image Stats tab -->
+        <div class="tools-body" data-tool="stats" style="display:none">
+          <div class="stats-grid">
+            <div class="stats-row"><span class="stats-label">Resolution</span><span class="stats-val" id="stats-res">--</span></div>
+            <div class="stats-row"><span class="stats-label">Format</span><span class="stats-val" id="stats-fmt">--</span></div>
+            <div class="stats-row"><span class="stats-label">Raw Size</span><span class="stats-val" id="stats-raw-size">--</span></div>
+            <div class="stats-row"><span class="stats-label">Transfer Size</span><span class="stats-val" id="stats-xfer-size">--</span></div>
+            <div class="stats-row"><span class="stats-label">Compression</span><span class="stats-val" id="stats-compression">--</span></div>
+            <div class="stats-sep"></div>
+            <div class="stats-row"><span class="stats-label">Board</span><span class="stats-val" id="stats-board">--</span></div>
+            <div class="stats-row"><span class="stats-label">Firmware</span><span class="stats-val" id="stats-fw">--</span></div>
+            <div class="stats-row"><span class="stats-label">Port</span><span class="stats-val" id="stats-port">--</span></div>
+            <div class="stats-sep"></div>
+            <div class="stats-row"><span class="stats-label">Uptime</span><span class="stats-val" id="stats-uptime">--</span></div>
+            <div class="stats-row"><span class="stats-label">Frames</span><span class="stats-val" id="stats-frames">0</span></div>
+            <div class="stats-row"><span class="stats-label">Errors</span><span class="stats-val" id="stats-errors">0</span></div>
           </div>
         </div>
       </div>
