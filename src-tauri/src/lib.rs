@@ -67,12 +67,19 @@ fn cmd_list_ports(app: tauri::AppHandle) -> Vec<String> {
 
 #[tauri::command]
 fn cmd_connect(port: String, state: State<Mutex<AppState>>) -> Result<(), String> {
+    log::info!("Connecting to {}", port);
     let mut st = state.lock().map_err(|e| e.to_string())?;
-    st.camera.connect(&port, 921600).map_err(|e| e.to_string())
+    let result = st.camera.connect(&port, 921600).map_err(|e| e.to_string());
+    match &result {
+        Ok(_) => log::info!("Connected to {}", port),
+        Err(e) => log::error!("Connect failed: {}", e),
+    }
+    result
 }
 
 #[tauri::command]
 fn cmd_disconnect(state: State<Mutex<AppState>>) -> Result<(), String> {
+    log::info!("Disconnecting");
     let mut st = state.lock().map_err(|e| e.to_string())?;
     st.camera.disconnect();
     Ok(())
@@ -617,6 +624,9 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
+                        .target(tauri_plugin_log::Target::new(
+                            tauri_plugin_log::TargetKind::Stderr,
+                        ))
                         .build(),
                 )?;
             }
