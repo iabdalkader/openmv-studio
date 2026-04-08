@@ -196,7 +196,7 @@ pub struct VersionInfo {
 pub struct FrameInfo {
     pub width: u32,
     pub height: u32,
-    pub format_str: String,
+    pub format: u32,
     pub data: Vec<u8>,
 }
 

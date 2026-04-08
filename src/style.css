@@ -413,18 +413,6 @@ body {
   width: 100%; height: 120px; border-radius: var(--radius-sm);
   background: var(--bg-deep); margin-bottom: 6px;
 }
-.hist-legend {
-  display: flex; gap: 10px; margin-bottom: 8px; font-size: 10px;
-  color: var(--text-secondary); user-select: none;
-}
-.hist-ch-toggle { display: flex; align-items: center; gap: 3px; cursor: pointer; }
-.hist-ch-toggle input { display: none; }
-.hist-ch-toggle input:not(:checked) ~ * { opacity: 0.3; }
-.hist-dot { width: 8px; height: 8px; border-radius: 50%; }
-.dot-r { background: #f05555; }
-.dot-g { background: #4ec962; }
-.dot-b { background: #5b9cf5; }
-.dot-l { background: #aaa; }
 .hist-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .hist-stat { background: var(--bg-surface); padding: 5px 8px; border-radius: var(--radius-sm); display: flex; justify-content: space-between; font-size: 10px; }
 .hist-stat .stat-label { color: var(--text-tertiary); }

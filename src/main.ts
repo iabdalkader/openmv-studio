@@ -874,6 +874,44 @@ let protoPollTimer: number | null = null;
 let protoPollInFlight = false;
 let protoPollInterval = 500;
 
+const PROTO_STAT_KEYS = [
+  "sent",
+  "received",
+  "checksum",
+  "sequence",
+  "retransmit",
+  "transport",
+  "sent_events",
+  "max_ack_queue_depth",
+];
+const PROTO_STAT_LABELS = [
+  "Sent",
+  "Received",
+  "Checksum Errors",
+  "Sequence Errors",
+  "Retransmits",
+  "Transport Errors",
+  "Events Sent",
+  "Max ACK Queue",
+];
+let protoBuilt = false;
+
+function buildProtoDOM(
+  content: HTMLElement,
+  channels: { name: string; id: number }[],
+) {
+  let html = '<div class="proto-section-label">Statistics</div>';
+  for (let i = 0; i < PROTO_STAT_LABELS.length; i++) {
+    html += `<div class="proto-row"><span>${PROTO_STAT_LABELS[i]}</span><span id="proto-${PROTO_STAT_KEYS[i]}">0</span></div>`;
+  }
+  html += '<div class="proto-section-label">Channels</div>';
+  for (const ch of channels) {
+    html += `<div class="proto-row"><span>${ch.name}</span><span>${ch.id}</span></div>`;
+  }
+  content.innerHTML = html;
+  protoBuilt = true;
+}
+
 async function fetchProtoStats() {
   if (!isConnected) return;
   if (protoPollInFlight) return;
@@ -882,34 +920,20 @@ async function fetchProtoStats() {
     const result = await invoke<any>("cmd_get_stats");
     const content = document.getElementById("proto-content");
     if (!content) return;
+    if (!protoBuilt) {
+      buildProtoDOM(content, result.channels);
+    }
     const s = result.stats;
-    const channels = result.channels as { name: string; id: number }[];
-    let html = '<div class="proto-panel">';
-    html += '<div class="proto-section-label">Statistics</div>';
-    const statsRows: [string, number][] = [
-      ["Sent", s.sent],
-      ["Received", s.received],
-      ["Checksum Errors", s.checksum],
-      ["Sequence Errors", s.sequence],
-      ["Retransmits", s.retransmit],
-      ["Transport Errors", s.transport],
-      ["Events Sent", s.sent_events],
-      ["Max ACK Queue", s.max_ack_queue_depth],
-    ];
-    for (const [label, val] of statsRows) {
-      html += `<div class="proto-row"><span>${label}</span><span>${val}</span></div>`;
+    for (const key of PROTO_STAT_KEYS) {
+      const el = document.getElementById(`proto-${key}`);
+      if (el) el.textContent = s[key];
     }
-    html += '<div class="proto-section-label">Channels</div>';
-    for (const ch of channels) {
-      html += `<div class="proto-row"><span>${ch.name}</span><span>${ch.id}</span></div>`;
-    }
-    html += "</div>";
-    content.innerHTML = html;
   } catch (e) {
     const content = document.getElementById("proto-content");
     if (content)
       content.innerHTML =
         '<div style="padding:8px;color:var(--text-muted)">Failed to read stats</div>';
+    protoBuilt = false;
   } finally {
     protoPollInFlight = false;
   }
@@ -1466,6 +1490,8 @@ async function doDisconnect() {
   } catch (_) {}
   connectedBoard = null;
   connectedSensor = null;
+  canvasVisible = false;
+  protoBuilt = false;
   setConnected(false);
   populateSensorSelect([]);
   clearInfoTab();
@@ -1593,15 +1619,19 @@ async function doPoll() {
     pos += 4;
 
     if (width > 0 && height > 0) {
-      const fmtLen = buf.getUint8(pos);
-      pos += 1;
-      const fmtBytes = new Uint8Array(raw, pos, fmtLen);
-      const formatStr = new TextDecoder().decode(fmtBytes);
-      pos += fmtLen;
+      const format = buf.getUint32(pos, true);
+      pos += 4;
       const frameData = new Uint8Array(raw, pos, width * height * 4);
 
       fbResolution.textContent = `${width} x ${height}`;
-      fbFormat.textContent = formatStr;
+      fbFormat.textContent =
+        format === 0x06060000
+          ? "JPEG"
+          : format === 0x0c030002
+            ? "RGB565"
+            : format === 0x08020001
+              ? "GRAY"
+              : `0x${format.toString(16).toUpperCase()}`;
 
       const now = performance.now();
       fpsTimestamps.push(now);
@@ -1632,21 +1662,21 @@ async function doPoll() {
   }
 }
 
+let canvasVisible = false;
 function showCanvas() {
-  fbCanvas.style.display = "block";
-  fbCanvas.style.maxWidth = "100%";
-  fbCanvas.style.maxHeight = "100%";
-  fbCanvas.style.objectFit = "contain";
-  fbNoImage.style.display = "none";
+  if (!canvasVisible) {
+    fbCanvas.style.display = "block";
+    fbCanvas.style.maxWidth = "100%";
+    fbCanvas.style.maxHeight = "100%";
+    fbCanvas.style.objectFit = "contain";
+    fbNoImage.style.display = "none";
+    canvasVisible = true;
+  }
   updateHistogram();
 }
 
 // -- Histogram --
 const histCanvas = document.getElementById("hist-canvas") as HTMLCanvasElement;
-const histChR = document.getElementById("hist-ch-r") as HTMLInputElement;
-const histChG = document.getElementById("hist-ch-g") as HTMLInputElement;
-const histChB = document.getElementById("hist-ch-b") as HTMLInputElement;
-const histChL = document.getElementById("hist-ch-l") as HTMLInputElement;
 const histMean = document.getElementById("hist-mean")!;
 const histMedian = document.getElementById("hist-median")!;
 const histStdev = document.getElementById("hist-stdev")!;
@@ -1662,8 +1692,9 @@ function isHistTabActive(): boolean {
 function updateHistogram() {
   if (!isHistTabActive()) return;
   if (fbCanvas.width === 0 || fbCanvas.height === 0) return;
-  const w = histCanvas.clientWidth;
-  const h = histCanvas.clientHeight;
+  const rect = histCanvas.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
   if (w === 0 || h === 0) return;
 
   const ctx = fbCanvas.getContext("2d")!;
@@ -1680,37 +1711,31 @@ function updateHistogram() {
     binsR[data[i]]++;
     binsG[data[i + 1]]++;
     binsB[data[i + 2]]++;
-    // Luminance: 0.299R + 0.587G + 0.114B
     const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
     binsL[lum]++;
   }
 
   // Draw histogram
   const dpr = window.devicePixelRatio || 1;
-  histCanvas.width = w * dpr;
-  histCanvas.height = h * dpr;
+  histCanvas.width = Math.round(w * dpr);
+  histCanvas.height = Math.round(h * dpr);
   const hctx = histCanvas.getContext("2d")!;
-  hctx.scale(dpr, dpr);
-  hctx.clearRect(0, 0, w, h);
+  hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const channels: [Uint32Array, string, boolean][] = [
-    [binsR, "rgba(240,85,85,0.5)", histChR.checked],
-    [binsG, "rgba(78,201,98,0.5)", histChG.checked],
-    [binsB, "rgba(91,156,245,0.5)", histChB.checked],
-    [binsL, "rgba(170,170,170,0.5)", histChL.checked],
+  const channels: [Uint32Array, string][] = [
+    [binsR, "rgba(240,85,85,0.5)"],
+    [binsG, "rgba(78,201,98,0.5)"],
+    [binsB, "rgba(91,156,245,0.5)"],
   ];
 
-  // Find max across enabled channels for scaling
   let maxVal = 1;
-  for (const [bins, , enabled] of channels) {
-    if (!enabled) continue;
+  for (const [bins] of channels) {
     for (let i = 0; i < 256; i++) {
       if (bins[i] > maxVal) maxVal = bins[i];
     }
   }
 
-  for (const [bins, color, enabled] of channels) {
-    if (!enabled) continue;
+  for (const [bins, color] of channels) {
     hctx.fillStyle = color;
     for (let i = 0; i < 256; i++) {
       const x0 = Math.floor((i * w) / 256);

@@ -9,54 +9,78 @@ use tauri::{Emitter, Manager, State};
 
 use camera::Camera;
 
-struct AppState {
-    camera: Camera,
+struct Board {
+    vid: u16,
+    pid: u16,
+    board_type: String,
+    display: String,
 }
 
-fn load_known_vid_pids(app: &tauri::AppHandle) -> Vec<(u16, u16)> {
+struct AppState {
+    camera: Camera,
+    boards: Vec<Board>,
+    sensors: serde_json::Value,
+}
+
+fn resolve_resource(app: &tauri::AppHandle, name: &str) -> std::path::PathBuf {
     let res_dir = app
         .path()
         .resource_dir()
         .ok()
-        .map(|p| p.join("resources").join("boards.json"));
+        .map(|p| p.join("resources").join(name));
     let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .join("resources")
-        .join("boards.json");
-    let path = match res_dir {
+        .join(name);
+    match res_dir {
         Some(ref p) if p.exists() => p.clone(),
         _ => dev_path,
-    };
-    let mut pairs = Vec::new();
-    if let Ok(data) = std::fs::read_to_string(&path)
-        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&data)
-        && let Some(boards) = json["boards"].as_array()
-    {
-        for b in boards {
-            if let (Some(vs), Some(ps)) = (b["vid"].as_str(), b["pid"].as_str()) {
-                let vid = u16::from_str_radix(vs.trim_start_matches("0x"), 16).unwrap_or(0);
-                let pid = u16::from_str_radix(ps.trim_start_matches("0x"), 16).unwrap_or(0);
-                if vid != 0 {
-                    pairs.push((vid, pid));
-                }
-            }
-        }
     }
-    pairs
+}
+
+fn parse_hex16(s: &str) -> u16 {
+    u16::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0)
+}
+
+fn load_boards(app: &tauri::AppHandle) -> Vec<Board> {
+    let path = resolve_resource(app, "boards.json");
+    let json = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok());
+    let Some(entries) = json.as_ref().and_then(|j| j["boards"].as_array()) else {
+        return vec![];
+    };
+    entries.iter().filter_map(|b| {
+        let vid = parse_hex16(b["vid"].as_str()?);
+        let pid = parse_hex16(b["pid"].as_str()?);
+        if vid == 0 { return None; }
+        Some(Board {
+            vid,
+            pid,
+            board_type: b["type"].as_str().unwrap_or("Unknown").to_string(),
+            display: b["display"].as_str().unwrap_or("Unknown").to_string(),
+        })
+    }).collect()
+}
+
+fn load_sensors(app: &tauri::AppHandle) -> serde_json::Value {
+    let path = resolve_resource(app, "sensors.json");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or(serde_json::json!({}))
 }
 
 #[tauri::command]
-fn cmd_list_ports(app: tauri::AppHandle) -> Vec<String> {
-    let known = load_known_vid_pids(&app);
+fn cmd_list_ports(state: State<Mutex<AppState>>) -> Vec<String> {
+    let st = state.lock().unwrap();
     serialport::available_ports()
         .unwrap_or_default()
         .into_iter()
         .filter(|p| {
             if let serialport::SerialPortType::UsbPort(info) = &p.port_type {
-                known
-                    .iter()
-                    .any(|(vid, pid)| info.vid == *vid && info.pid == *pid)
+                st.boards.iter().any(|b| b.vid == info.vid && b.pid == info.pid)
             } else {
                 false
             }
@@ -97,19 +121,16 @@ fn cmd_get_version(state: State<Mutex<AppState>>) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
-fn cmd_get_sysinfo(
-    app: tauri::AppHandle,
-    state: State<Mutex<AppState>>,
-) -> Result<serde_json::Value, String> {
+fn cmd_get_sysinfo(state: State<Mutex<AppState>>) -> Result<serde_json::Value, String> {
     let st = state.lock().map_err(|e| e.to_string())?;
     let info = st.camera.sysinfo.as_ref().ok_or("Not connected")?;
-    let (board_type, board_name) = lookup_board(&app, info.usb_vid, info.usb_pid);
+    let (board_type, board_name) = lookup_board(&st.boards, info.usb_vid, info.usb_pid);
     let sensors: Vec<serde_json::Value> = info
         .chip_ids
         .iter()
         .filter(|&&id| id != 0)
         .map(|&id| {
-            let name = lookup_sensor(&app, id);
+            let name = lookup_sensor(&st.sensors, id);
             serde_json::json!({ "chip_id": id, "name": name })
         })
         .collect();
@@ -121,65 +142,18 @@ fn cmd_get_sysinfo(
     Ok(val)
 }
 
-fn lookup_board(app: &tauri::AppHandle, vid: u16, pid: u16) -> (String, String) {
-    let res_dir = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|p| p.join("resources").join("boards.json"));
-    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("resources")
-        .join("boards.json");
-    let path = match res_dir {
-        Some(ref p) if p.exists() => p.clone(),
-        _ => dev_path,
-    };
-    let vid_str = format!("0x{:04X}", vid);
-    let pid_str = format!("0x{:04X}", pid);
-    if let Ok(data) = std::fs::read_to_string(&path)
-        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&data)
-        && let Some(boards) = json["boards"].as_array()
-    {
-        for b in boards {
-            if b["vid"].as_str() == Some(&vid_str) && b["pid"].as_str() == Some(&pid_str) {
-                return (
-                    b["type"].as_str().unwrap_or("Unknown").to_string(),
-                    b["display"].as_str().unwrap_or("Unknown").to_string(),
-                );
-            }
-        }
-    }
-    (
-        format!("{:04X}:{:04X}", vid, pid),
-        "Unknown Board".to_string(),
-    )
+fn lookup_board(boards: &[Board], vid: u16, pid: u16) -> (String, String) {
+    boards.iter()
+        .find(|b| b.vid == vid && b.pid == pid)
+        .map(|b| (b.board_type.clone(), b.display.clone()))
+        .unwrap_or_else(|| (format!("{:04X}:{:04X}", vid, pid), "Unknown Board".to_string()))
 }
 
-fn lookup_sensor(app: &tauri::AppHandle, chip_id: u32) -> String {
-    let res_dir = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|p| p.join("resources").join("sensors.json"));
-    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("resources")
-        .join("sensors.json");
-    let path = match res_dir {
-        Some(ref p) if p.exists() => p.clone(),
-        _ => dev_path,
-    };
+fn lookup_sensor(sensors: &serde_json::Value, chip_id: u32) -> String {
     let key = format!("0x{:X}", chip_id);
-    if let Ok(data) = std::fs::read_to_string(&path)
-        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&data)
-        && let Some(name) = json["sensors"][&key].as_str()
-    {
-        return name.to_string();
-    }
-    format!("Unknown (0x{:X})", chip_id)
+    sensors["sensors"][&key].as_str()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Unknown (0x{:X})", chip_id))
 }
 
 #[tauri::command]
@@ -248,9 +222,7 @@ fn cmd_poll(state: State<Mutex<AppState>>) -> Result<ipc::Response, String> {
     if let Some(f) = result.frame {
         buf.extend_from_slice(&f.width.to_le_bytes());
         buf.extend_from_slice(&f.height.to_le_bytes());
-        let fmt = f.format_str.as_bytes();
-        buf.push(fmt.len() as u8);
-        buf.extend_from_slice(fmt);
+        buf.extend_from_slice(&f.format.to_le_bytes());
         buf.extend_from_slice(&f.data);
     } else {
         buf.extend_from_slice(&0u32.to_le_bytes());
@@ -266,23 +238,7 @@ fn cmd_list_examples(
     board: Option<String>,
     sensor: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let res_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("resources")
-        .join("examples");
-
-    // Fallback for dev mode
-    let examples_dir = if res_dir.exists() {
-        res_dir
-    } else {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("resources")
-            .join("examples")
-    };
+    let examples_dir = resolve_resource(&app, "examples");
 
     if !examples_dir.exists() {
         return Err(format!("Examples not found: {:?}", examples_dir));
@@ -609,6 +565,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(AppState {
             camera: Camera::new(),
+            boards: vec![],
+            sensors: serde_json::json!({}),
         }))
         .invoke_handler(tauri::generate_handler![
             cmd_list_ports,
@@ -637,6 +595,17 @@ pub fn run() {
                         ))
                         .build(),
                 )?;
+            }
+
+            // Load resource files once at startup
+            {
+                let handle = app.handle();
+                let boards = load_boards(handle);
+                let sensors = load_sensors(handle);
+                let state = app.state::<Mutex<AppState>>();
+                let mut st = state.lock().unwrap();
+                st.boards = boards;
+                st.sensors = sensors;
             }
 
             let menu = build_menu(app)?;

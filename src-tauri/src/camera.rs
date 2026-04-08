@@ -383,7 +383,7 @@ impl Camera {
                 FrameInfo {
                     width: rgba.width(),
                     height: rgba.height(),
-                    format_str: "JPEG".into(),
+                    format: PIXFORMAT_JPEG,
                     data: rgba.into_raw(),
                 }
             }
@@ -401,7 +401,7 @@ impl Camera {
                 FrameInfo {
                     width,
                     height,
-                    format_str: "RGB565".into(),
+                    format: PIXFORMAT_RGB565,
                     data: rgba,
                 }
             }
@@ -419,33 +419,37 @@ impl Camera {
                 FrameInfo {
                     width,
                     height,
-                    format_str: "GRAY".into(),
+                    format: PIXFORMAT_GRAYSCALE,
                     data: rgba,
                 }
             }
             _ => FrameInfo {
                 width,
                 height,
-                format_str: format!("0x{:08X}", format),
+                format,
                 data: raw.to_vec(),
             },
         }))
     }
 
+    fn ch_active(&self, poll_flags: u32, name: &str) -> bool {
+        self.channels.get(name).map_or(false, |&id| poll_flags & (1 << id) != 0)
+    }
+
     pub fn poll(&mut self) -> PollResult {
         let mut need_resync = false;
 
-        let status = match self.poll_status(false) {
-            Ok(s) => s,
+        let poll_flags = match self.poll_status(false) {
+            Ok(f) => f,
             Err(_) => {
                 need_resync = true;
-                HashMap::new()
+                0
             }
         };
 
-        let script_running = status.get("stdin").copied().unwrap_or(false);
+        let script_running = self.ch_active(poll_flags, "stdin");
 
-        let stdout = if !need_resync && status.get("stdout").copied().unwrap_or(false) {
+        let stdout = if !need_resync && self.ch_active(poll_flags, "stdout") {
             match self.read_stdout(false) {
                 Ok(s) => s,
                 Err(_) => {
@@ -481,15 +485,10 @@ impl Camera {
         }
     }
 
-    fn poll_status(&mut self, resync: bool) -> Result<HashMap<String, bool>, ProtocolError> {
+    fn poll_status(&mut self, resync: bool) -> Result<u32, ProtocolError> {
         let p = self
             .cmd(Opcode::ChannelPoll, 0, None, resync)?
             .ok_or(ProtocolError::Timeout)?;
-        let flags = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
-        Ok(self
-            .channels
-            .iter()
-            .map(|(name, &id)| (name.clone(), flags & (1 << id) != 0))
-            .collect())
+        Ok(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
     }
 }
