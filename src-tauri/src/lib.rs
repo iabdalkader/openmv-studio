@@ -113,18 +113,12 @@ fn cmd_get_sysinfo(
             serde_json::json!({ "chip_id": id, "name": name })
         })
         .collect();
-    Ok(serde_json::json!({
-        "cpu_id": info.cpu_id,
-        "usb_vid": info.usb_vid,
-        "usb_pid": info.usb_pid,
-        "board_type": board_type,
-        "board_name": board_name,
-        "flash_size_kb": info.flash_size_kb,
-        "ram_size_kb": info.ram_size_kb,
-        "npu_present": info.npu_present,
-        "pmu_present": info.pmu_present,
-        "sensors": sensors,
-    }))
+    let mut val = serde_json::to_value(info).map_err(|e| e.to_string())?;
+    let obj = val.as_object_mut().unwrap();
+    obj.insert("board_type".into(), board_type.into());
+    obj.insert("board_name".into(), board_name.into());
+    obj.insert("sensors".into(), sensors.into());
+    Ok(val)
 }
 
 fn lookup_board(app: &tauri::AppHandle, vid: u16, pid: u16) -> (String, String) {
@@ -193,6 +187,20 @@ fn cmd_get_memory(state: State<Mutex<AppState>>) -> Result<serde_json::Value, St
     let mut st = state.lock().map_err(|e| e.to_string())?;
     let entries = st.camera.memory_stats().map_err(|e| e.to_string())?;
     serde_json::to_value(&entries).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn cmd_get_stats(state: State<Mutex<AppState>>) -> Result<serde_json::Value, String> {
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    let stats = st.camera.device_stats().map_err(|e| e.to_string())?;
+    let channels: Vec<serde_json::Value> = st.camera.get_channels()
+        .into_iter()
+        .map(|(name, id)| serde_json::json!({"name": name, "id": id}))
+        .collect();
+    Ok(serde_json::json!({
+        "stats": stats,
+        "channels": channels,
+    }))
 }
 
 #[tauri::command]
@@ -610,6 +618,7 @@ pub fn run() {
             cmd_get_version,
             cmd_get_sysinfo,
             cmd_get_memory,
+            cmd_get_stats,
             cmd_run_script,
             cmd_stop_script,
             cmd_enable_streaming,

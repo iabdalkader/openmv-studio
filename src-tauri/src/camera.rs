@@ -160,23 +160,34 @@ impl Camera {
         }
         if let Ok(Some(p)) = self.cmd(Opcode::SysInfo, 0, None, true) {
             if p.len() >= 76 {
-                let usb_id = u32::from_le_bytes([p[16], p[17], p[18], p[19]]);
-                let caps = u32::from_le_bytes([p[40], p[41], p[42], p[43]]);
-                let chip_ids = [
-                    u32::from_le_bytes([p[20], p[21], p[22], p[23]]),
-                    u32::from_le_bytes([p[24], p[25], p[26], p[27]]),
-                    u32::from_le_bytes([p[28], p[29], p[30], p[31]]),
-                ];
+                let u = |o: usize| u32::from_le_bytes([p[o], p[o+1], p[o+2], p[o+3]]);
+                let usb_id = u(16);
+                let caps = u(40);
                 self.sysinfo = Some(SystemInfo {
-                    cpu_id: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                    cpu_id: u(0),
+                    device_id: [u(4), u(8), u(12)],
                     usb_vid: (usb_id >> 16) as u16,
                     usb_pid: usb_id as u16,
-                    chip_ids,
-                    flash_size_kb: u32::from_le_bytes([p[48], p[49], p[50], p[51]]),
-                    ram_size_kb: u32::from_le_bytes([p[52], p[53], p[54], p[55]]),
+                    chip_ids: [u(20), u(24), u(28)],
+                    gpu_present: caps & (1 << 0) != 0,
                     npu_present: caps & (1 << 1) != 0,
+                    isp_present: caps & (1 << 2) != 0,
+                    venc_present: caps & (1 << 3) != 0,
+                    jpeg_present: caps & (1 << 4) != 0,
+                    dram_present: caps & (1 << 5) != 0,
+                    crc_present: caps & (1 << 6) != 0,
                     pmu_present: caps & (1 << 7) != 0,
                     pmu_eventcnt: ((caps >> 8) & 0xFF) as u8,
+                    wifi_present: caps & (1 << 16) != 0,
+                    bt_present: caps & (1 << 17) != 0,
+                    sd_present: caps & (1 << 18) != 0,
+                    eth_present: caps & (1 << 19) != 0,
+                    usb_highspeed: caps & (1 << 20) != 0,
+                    multicore_present: caps & (1 << 21) != 0,
+                    flash_size_kb: u(48),
+                    ram_size_kb: u(52),
+                    framebuffer_size_kb: u(56),
+                    stream_buffer_size_kb: u(60),
                 });
             }
         }
@@ -253,7 +264,7 @@ impl Camera {
             }
             entries.push(MemEntry {
                 mem_type: if p[o] == 0 { "gc".into() } else { "uma".into() },
-                index: p[o + 1],
+                flags: u16::from_le_bytes([p[o + 2], p[o + 3]]),
                 total: u32::from_le_bytes([p[o + 4], p[o + 5], p[o + 6], p[o + 7]]),
                 used: u32::from_le_bytes([p[o + 8], p[o + 9], p[o + 10], p[o + 11]]),
                 free: u32::from_le_bytes([p[o + 12], p[o + 13], p[o + 14], p[o + 15]]),
@@ -262,6 +273,30 @@ impl Camera {
             });
         }
         Ok(entries)
+    }
+
+    pub fn device_stats(&mut self) -> Result<ProtoStats, ProtocolError> {
+        let p = self
+            .cmd(Opcode::ProtoStats, 0, None, true)?
+            .ok_or(ProtocolError::Timeout)?;
+        if p.len() < 32 {
+            return Err(ProtocolError::IoError("Invalid PROTO_STATS response".into()));
+        }
+        let u = |o: usize| u32::from_le_bytes([p[o], p[o+1], p[o+2], p[o+3]]);
+        Ok(ProtoStats {
+            sent: u(0),
+            received: u(4),
+            checksum: u(8),
+            sequence: u(12),
+            retransmit: u(16),
+            transport: u(20),
+            sent_events: u(24),
+            max_ack_queue_depth: u(28),
+        })
+    }
+
+    pub fn get_channels(&self) -> Vec<(String, u8)> {
+        self.channels.iter().map(|(k, &v)| (k.clone(), v)).collect()
     }
 
     pub fn exec_script(&mut self, script: &str) -> Result<(), ProtocolError> {

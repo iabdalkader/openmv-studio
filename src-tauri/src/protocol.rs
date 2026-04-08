@@ -146,14 +146,43 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemInfo {
     pub cpu_id: u32,
+    pub device_id: [u32; 3],
     pub usb_vid: u16,
     pub usb_pid: u16,
     pub chip_ids: [u32; 3],
-    pub flash_size_kb: u32,
-    pub ram_size_kb: u32,
+    // Capabilities
+    pub gpu_present: bool,
     pub npu_present: bool,
+    pub isp_present: bool,
+    pub venc_present: bool,
+    pub jpeg_present: bool,
+    pub dram_present: bool,
+    pub crc_present: bool,
     pub pmu_present: bool,
     pub pmu_eventcnt: u8,
+    pub wifi_present: bool,
+    pub bt_present: bool,
+    pub sd_present: bool,
+    pub eth_present: bool,
+    pub usb_highspeed: bool,
+    pub multicore_present: bool,
+    // Memory
+    pub flash_size_kb: u32,
+    pub ram_size_kb: u32,
+    pub framebuffer_size_kb: u32,
+    pub stream_buffer_size_kb: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProtoStats {
+    pub sent: u32,
+    pub received: u32,
+    pub checksum: u32,
+    pub sequence: u32,
+    pub retransmit: u32,
+    pub transport: u32,
+    pub sent_events: u32,
+    pub max_ack_queue_depth: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -175,7 +204,7 @@ pub struct FrameInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct MemEntry {
     pub mem_type: String,
-    pub index: u8,
+    pub flags: u16,
     pub total: u32,
     pub used: u32,
     pub free: u32,

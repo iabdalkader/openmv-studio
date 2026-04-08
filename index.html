@@ -150,94 +150,34 @@
       <div class="tools-panel">
         <div class="tools-tabs">
           <button class="tools-tab active" data-tool="histogram">Histogram</button>
-          <button class="tools-tab" data-tool="controls">Controls</button>
-          <button class="tools-tab" data-tool="perf">Performance</button>
-          <button class="tools-tab" data-tool="stats">Stats</button>
+          <button class="tools-tab" data-tool="info">Info</button>
           <button class="tools-tab" data-tool="memory">Memory</button>
+          <button class="tools-tab" data-tool="protocol">Protocol</button>
         </div>
 
         <!-- Histogram tab -->
         <div class="tools-body" data-tool="histogram">
-          <div class="hist-channels">
-            <div class="hist-channel ch-r"><span class="hist-ch-label">R</span></div>
-            <div class="hist-channel ch-g"><span class="hist-ch-label">G</span></div>
-            <div class="hist-channel ch-b"><span class="hist-ch-label">B</span></div>
+          <canvas id="hist-canvas"></canvas>
+          <div class="hist-legend">
+            <label class="hist-ch-toggle"><input type="checkbox" id="hist-ch-r" checked><span class="hist-dot dot-r"></span>R</label>
+            <label class="hist-ch-toggle"><input type="checkbox" id="hist-ch-g" checked><span class="hist-dot dot-g"></span>G</label>
+            <label class="hist-ch-toggle"><input type="checkbox" id="hist-ch-b" checked><span class="hist-dot dot-b"></span>B</label>
+            <label class="hist-ch-toggle"><input type="checkbox" id="hist-ch-l"><span class="hist-dot dot-l"></span>L</label>
           </div>
           <div class="hist-stats">
-            <div class="hist-stat"><span class="stat-label">Mean</span><span class="stat-val">0</span></div>
-            <div class="hist-stat"><span class="stat-label">Median</span><span class="stat-val">0</span></div>
-            <div class="hist-stat"><span class="stat-label">StDev</span><span class="stat-val">0</span></div>
-            <div class="hist-stat"><span class="stat-label">Min</span><span class="stat-val">0</span></div>
-            <div class="hist-stat"><span class="stat-label">Max</span><span class="stat-val">0</span></div>
-            <div class="hist-stat"><span class="stat-label">Mode</span><span class="stat-val">0</span></div>
+            <div class="hist-stat"><span class="stat-label">Mean</span><span class="stat-val" id="hist-mean">--</span></div>
+            <div class="hist-stat"><span class="stat-label">Median</span><span class="stat-val" id="hist-median">--</span></div>
+            <div class="hist-stat"><span class="stat-label">StDev</span><span class="stat-val" id="hist-stdev">--</span></div>
+            <div class="hist-stat"><span class="stat-label">Min</span><span class="stat-val" id="hist-min">--</span></div>
+            <div class="hist-stat"><span class="stat-label">Max</span><span class="stat-val" id="hist-max">--</span></div>
+            <div class="hist-stat"><span class="stat-label">Mode</span><span class="stat-val" id="hist-mode">--</span></div>
           </div>
         </div>
 
-        <!-- Camera Controls tab -->
-        <div class="tools-body" data-tool="controls" style="display:none">
-          <div class="ctrl-group">
-            <div class="ctrl-row">
-              <span class="ctrl-label">Exposure</span>
-              <input type="range" class="ctrl-slider" min="0" max="255" value="128">
-              <span class="ctrl-val">128</span>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">Gain</span>
-              <input type="range" class="ctrl-slider" min="0" max="255" value="64">
-              <span class="ctrl-val">64</span>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">Contrast</span>
-              <input type="range" class="ctrl-slider" min="-3" max="3" value="0">
-              <span class="ctrl-val">0</span>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">Brightness</span>
-              <input type="range" class="ctrl-slider" min="-3" max="3" value="0">
-              <span class="ctrl-val">0</span>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">Saturation</span>
-              <input type="range" class="ctrl-slider" min="-3" max="3" value="0">
-              <span class="ctrl-val">0</span>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">White Bal.</span>
-              <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">Auto Exposure</span>
-              <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">Auto Gain</span>
-              <label class="switch"><input type="checkbox" checked><span class="switch-slider"></span></label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Performance tab -->
-        <div class="tools-body" data-tool="perf" style="display:none">
-          <div class="perf-grid">
-            <div class="perf-card">
-              <div class="perf-card-label">FPS</div>
-              <div class="perf-card-value" id="perf-fps">--</div>
-              <canvas class="perf-spark" id="perf-fps-spark" width="120" height="32"></canvas>
-            </div>
-            <div class="perf-card">
-              <div class="perf-card-label">Frame Size</div>
-              <div class="perf-card-value" id="perf-frame-size">-- KB</div>
-              <canvas class="perf-spark" id="perf-size-spark" width="120" height="32"></canvas>
-            </div>
-            <div class="perf-card">
-              <div class="perf-card-label">Transfer</div>
-              <div class="perf-card-value" id="perf-transfer">-- ms</div>
-              <canvas class="perf-spark" id="perf-xfer-spark" width="120" height="32"></canvas>
-            </div>
-            <div class="perf-card">
-              <div class="perf-card-label">Dropped</div>
-              <div class="perf-card-value" id="perf-dropped">0</div>
-            </div>
+        <!-- Info tab -->
+        <div class="tools-body" data-tool="info" style="display:none">
+          <div class="info-grid" id="info-content">
+            <div style="padding:8px;color:var(--text-muted)">Connect to view board info</div>
           </div>
         </div>
 
@@ -253,24 +193,18 @@
           </div>
         </div>
 
-        <!-- Image Stats tab -->
-        <div class="tools-body" data-tool="stats" style="display:none">
-          <div class="stats-grid">
-            <div class="stats-row"><span class="stats-label">Resolution</span><span class="stats-val" id="stats-res">--</span></div>
-            <div class="stats-row"><span class="stats-label">Format</span><span class="stats-val" id="stats-fmt">--</span></div>
-            <div class="stats-row"><span class="stats-label">Raw Size</span><span class="stats-val" id="stats-raw-size">--</span></div>
-            <div class="stats-row"><span class="stats-label">Transfer Size</span><span class="stats-val" id="stats-xfer-size">--</span></div>
-            <div class="stats-row"><span class="stats-label">Compression</span><span class="stats-val" id="stats-compression">--</span></div>
-            <div class="stats-sep"></div>
-            <div class="stats-row"><span class="stats-label">Board</span><span class="stats-val" id="stats-board">--</span></div>
-            <div class="stats-row"><span class="stats-label">Firmware</span><span class="stats-val" id="stats-fw">--</span></div>
-            <div class="stats-row"><span class="stats-label">Port</span><span class="stats-val" id="stats-port">--</span></div>
-            <div class="stats-sep"></div>
-            <div class="stats-row"><span class="stats-label">Uptime</span><span class="stats-val" id="stats-uptime">--</span></div>
-            <div class="stats-row"><span class="stats-label">Frames</span><span class="stats-val" id="stats-frames">0</span></div>
-            <div class="stats-row"><span class="stats-label">Errors</span><span class="stats-val" id="stats-errors">0</span></div>
+        <!-- Protocol tab -->
+        <div class="tools-body" data-tool="protocol" style="display:none">
+          <div class="proto-poll-control">
+            <label class="proto-poll-label">Poll interval</label>
+            <input type="range" id="proto-poll-slider" min="100" max="1000" step="100" value="500" class="proto-poll-slider">
+            <span class="proto-poll-value" id="proto-poll-value">500 ms</span>
+          </div>
+          <div id="proto-content" class="proto-panel">
+            <div style="padding:8px;color:var(--text-muted)">Connect to view protocol stats</div>
           </div>
         </div>
+
       </div>
     </div>
 
