@@ -221,10 +221,6 @@ const editor = monaco.editor.create(document.getElementById("monaco-editor")!, {
   insertSpaces: true,
 });
 
-// Unbind Ctrl+E from Monaco (conflicts with Connect shortcut)
-monaco.editor.addKeybindingRules([
-  { keybinding: monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE, command: null },
-]);
 
 function fileName(f: OpenFile): string {
   if (f.name) return f.name;
@@ -2025,6 +2021,22 @@ const shortcutBindings: ShortcutBinding[] = [
     defaults: [{ meta: true, key: "," }],
     action: openSettings,
   },
+  {
+    id: "prev-tab",
+    label: "Previous Tab",
+    defaults: [{ meta: true, shift: true, key: "ArrowUp" }],
+    action: () => {
+      if (openFiles.length > 1) switchToFile((activeFileIndex - 1 + openFiles.length) % openFiles.length);
+    },
+  },
+  {
+    id: "next-tab",
+    label: "Next Tab",
+    defaults: [{ meta: true, shift: true, key: "ArrowDown" }],
+    action: () => {
+      if (openFiles.length > 1) switchToFile((activeFileIndex + 1) % openFiles.length);
+    },
+  },
 ];
 
 function getActiveShortcuts(binding: ShortcutBinding): Shortcut[] {
@@ -2051,6 +2063,22 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Let app shortcuts pass through Monaco to the document
+editor.onKeyDown((e) => {
+  const ke = e.browserEvent;
+  if (!ke.metaKey && !ke.ctrlKey) return;
+  for (const binding of shortcutBindings) {
+    const shortcuts = getActiveShortcuts(binding);
+    for (const s of shortcuts) {
+      if (matchesShortcut(ke, s)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+  }
+});
+
 // -- UI Scaling --
 let uiScale = 1.2;
 let pollIntervalMs = 50;
@@ -2069,6 +2097,7 @@ setUIScale(uiScale);
 
 // -- Settings dialog --
 function openSettings() {
+  const prevTab = document.querySelector(".settings-icon-tab.active")?.getAttribute("data-stab") || null;
   document.getElementById("settings-overlay")?.remove();
 
   const overlay = document.createElement("div");
@@ -2105,7 +2134,7 @@ function openSettings() {
         <div class="pref-row">
           <span class="pref-label">UI Scale:</span>
           <div class="scale-control">
-            <input type="range" id="set-scale" min="50" max="200" step="10" value="${Math.round(uiScale * 100)}">
+            <input type="range" id="set-scale" min="50" max="200" step="5" value="${Math.round(uiScale * 100)}">
             <span class="scale-value" id="scale-label">${Math.round(uiScale * 100)}%</span>
           </div>
         </div>
@@ -2240,6 +2269,12 @@ function openSettings() {
       ).textContent;
     });
   });
+
+  // Restore previous tab if re-opening
+  if (prevTab) {
+    const btn = overlay.querySelector(`.settings-icon-tab[data-stab="${prevTab}"]`) as HTMLElement;
+    if (btn) btn.click();
+  }
 
   // Live-apply
   const scaleSlider = document.getElementById("set-scale") as HTMLInputElement;
