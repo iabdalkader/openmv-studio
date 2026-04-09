@@ -117,12 +117,18 @@
     <div class="right-panel">
       <div class="fb-section">
         <div class="fb-header">
-          <span class="fb-title">Frame Buffer</span>
-          <div class="fb-controls">
+          <div class="fb-header-strip">
+            <span class="info-badge badge-res" id="fb-resolution">-- x --</span>
+            <span class="info-badge badge-format" id="fb-format">--</span>
+            <span class="info-badge badge-fps" id="fb-fps">-- FPS</span>
+            <div style="flex:1"></div>
             <select id="fb-source" disabled><option value="">No sensor</option></select>
-            <button class="fb-btn active">Zoom</button>
-            <button class="fb-btn" id="btn-fb-disable">Disable</button>
-            <button class="fb-btn">JPG</button>
+            <button class="fb-btn active" id="btn-fb-disable" title="Disable streaming">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button class="fb-btn active" id="btn-fb-jpeg" title="JPEG mode">
+              <svg width="18" height="14" viewBox="0 0 28 24" fill="none" stroke="currentColor" stroke-width="1.8"><text x="1" y="17" font-size="14" font-weight="bold" font-family="sans-serif" fill="currentColor" stroke="none">JPG</text></svg>
+            </button>
           </div>
         </div>
         <div class="fb-viewport">
@@ -131,15 +137,6 @@
             <span>No image data</span>
           </div>
           <canvas id="framebuffer-canvas" style="display:none;"></canvas>
-        </div>
-        <div class="fb-info-strip">
-          <div class="info-tag">
-            <span class="info-badge badge-res" id="fb-resolution">-- x --</span>
-            <span class="info-badge badge-focus" id="fb-focus">Focus --</span>
-          </div>
-          <div class="info-tag">
-            <span class="fb-format" id="fb-format">--</span>
-          </div>
         </div>
       </div>
 

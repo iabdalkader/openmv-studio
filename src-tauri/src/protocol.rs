@@ -215,4 +215,5 @@ pub struct PollResult {
     pub stdout: Option<String>,
     pub frame: Option<FrameInfo>,
     pub script_running: bool,
+    pub connected: bool,
 }

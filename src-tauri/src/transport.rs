@@ -120,6 +120,10 @@ impl Transport {
         }
     }
 
+    pub fn port_alive(&self) -> bool {
+        self.port.bytes_to_read().is_ok()
+    }
+
     pub fn reset_sequence(&mut self) {
         self.sequence = 0;
     }

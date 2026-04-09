@@ -73,6 +73,11 @@ fn load_sensors(app: &tauri::AppHandle) -> serde_json::Value {
 }
 
 #[tauri::command]
+fn cmd_open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn cmd_list_ports(state: State<Mutex<AppState>>) -> Vec<String> {
     let st = state.lock().unwrap();
     serialport::available_ports()
@@ -198,10 +203,10 @@ fn cmd_stop_script(state: State<Mutex<AppState>>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn cmd_enable_streaming(enable: bool, state: State<Mutex<AppState>>) -> Result<(), String> {
+fn cmd_enable_streaming(enable: bool, raw: bool, state: State<Mutex<AppState>>) -> Result<(), String> {
     let mut st = state.lock().map_err(|e| e.to_string())?;
     st.camera
-        .enable_streaming(enable)
+        .enable_streaming(enable, raw)
         .map_err(|e| e.to_string())
 }
 
@@ -213,8 +218,8 @@ fn cmd_poll(state: State<Mutex<AppState>>) -> Result<ipc::Response, String> {
     let stdout_bytes = result.stdout.unwrap_or_default().into_bytes();
     let mut buf = Vec::with_capacity(stdout_bytes.len() + 256);
 
-    // Script running flag
-    buf.push(result.script_running as u8);
+    // Flags byte: bit 0 = script_running, bit 1 = connected
+    buf.push((result.script_running as u8) | ((result.connected as u8) << 1));
 
     buf.extend_from_slice(&(stdout_bytes.len() as u32).to_le_bytes());
     buf.extend_from_slice(&stdout_bytes);
@@ -569,6 +574,7 @@ pub fn run() {
             sensors: serde_json::json!({}),
         }))
         .invoke_handler(tauri::generate_handler![
+            cmd_open_url,
             cmd_list_ports,
             cmd_connect,
             cmd_disconnect,

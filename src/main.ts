@@ -263,6 +263,10 @@ function createFile(
   return file;
 }
 
+async function openDocsWindow() {
+  await invoke("cmd_open_url", { url: "https://docs.openmv.io/" });
+}
+
 function switchToFile(index: number) {
   if (index < 0 || index >= openFiles.length) return;
   activeFileIndex = index;
@@ -274,6 +278,7 @@ function switchToFile(index: number) {
 function renderTabs() {
   const bar = document.getElementById("tab-bar")!;
   bar.innerHTML = "";
+
   openFiles.forEach((f, i) => {
     const tab = document.createElement("div");
     tab.className = "tab" + (i === activeFileIndex ? " active" : "");
@@ -1060,6 +1065,11 @@ document.querySelectorAll(".sidebar-btn[data-panel]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const panel = (btn as HTMLElement).dataset.panel!;
 
+    if (panel === "docs") {
+      openDocsWindow();
+      return;
+    }
+
     if (activePanelName === panel) {
       closeSidePanel();
     } else {
@@ -1416,17 +1426,36 @@ function clearInfoTab() {
       '<div style="padding:8px;color:var(--text-muted)">Connect to view board info</div>';
 }
 
-let fbDisabled = false;
 const btnFbDisable = document.getElementById("btn-fb-disable")!;
-btnFbDisable.addEventListener("click", async () => {
-  if (!isConnected) return;
-  fbDisabled = !fbDisabled;
-  btnFbDisable.classList.toggle("active", fbDisabled);
+const btnFbJpeg = document.getElementById("btn-fb-jpeg")!;
+
+const iconEyeOpen = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+const iconEyeClosed = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+const iconJpOn = '<svg width="18" height="14" viewBox="0 0 28 24" fill="none" stroke="currentColor" stroke-width="1.8"><text x="1" y="17" font-size="14" font-weight="bold" font-family="sans-serif" fill="currentColor" stroke="none">JPG</text></svg>';
+const iconJpOff = '<svg width="18" height="14" viewBox="0 0 28 24" fill="none" stroke="currentColor" stroke-width="1.8"><text x="1" y="17" font-size="14" font-weight="bold" font-family="sans-serif" fill="currentColor" stroke="none">JPG</text><line x1="2" y1="2" x2="26" y2="22"/></svg>';
+
+async function sendStreaming() {
   try {
-    await invoke("cmd_enable_streaming", { enable: !fbDisabled });
+    const enable = btnFbDisable.classList.contains("active");
+    const raw = !btnFbJpeg.classList.contains("active");
+    await invoke("cmd_enable_streaming", { enable, raw });
   } catch (e) {
-    console.error("Failed to toggle streaming:", e);
+    console.error("Failed to set streaming:", e);
   }
+}
+
+btnFbDisable.addEventListener("click", async () => {
+  const enabled = btnFbDisable.classList.toggle("active");
+  btnFbDisable.innerHTML = enabled ? iconEyeOpen : iconEyeClosed;
+  btnFbDisable.title = enabled ? "Disable streaming" : "Enable streaming";
+  if (isConnected) await sendStreaming();
+});
+
+btnFbJpeg.addEventListener("click", async () => {
+  const jpeg = btnFbJpeg.classList.toggle("active");
+  btnFbJpeg.innerHTML = jpeg ? iconJpOn : iconJpOff;
+  btnFbJpeg.title = jpeg ? "JPEG mode" : "RAW mode";
+  if (isConnected) await sendStreaming();
 });
 
 fbSourceSelect.addEventListener("change", async () => {
@@ -1445,7 +1474,10 @@ async function doConnect() {
   if (isConnected) return;
   try {
     const ports = await invoke<string[]>("cmd_list_ports");
-    if (ports.length === 0) return;
+    if (ports.length === 0) {
+      termLog("No serial ports found.", "error-line");
+      return;
+    }
 
     await invoke("cmd_connect", { port: ports[0] });
 
@@ -1465,7 +1497,7 @@ async function doConnect() {
     } catch (_) {}
     // Enable streaming and start polling
     try {
-      await invoke("cmd_enable_streaming", { enable: !fbDisabled });
+      await sendStreaming();
     } catch (_) {}
     startPolling();
     if (isMemTabActive()) startMemPolling();
@@ -1528,6 +1560,7 @@ async function toggleConnect() {
 async function runScript() {
   if (!isConnected) return;
   try {
+    await sendStreaming();
     await invoke("cmd_run_script", { script: editor.getValue() });
     setScriptRunning(true);
   } catch (e: any) {
@@ -1566,6 +1599,7 @@ const fbNoImage = document.querySelector(".no-image") as HTMLElement;
 const fbResolution = document.getElementById("fb-resolution")!;
 const fbFormat = document.getElementById("fb-format")!;
 const statusFps = document.getElementById("status-fps")!;
+const fbFps = document.getElementById("fb-fps")!;
 
 function startPolling() {
   stopPolling();
@@ -1587,9 +1621,15 @@ async function doPoll() {
     const buf = new DataView(raw);
     let pos = 0;
 
-    // Parse script_running flag
-    const running = buf.getUint8(pos) !== 0;
+    // Parse flags byte: bit 0 = script_running, bit 1 = connected
+    const flags = buf.getUint8(pos);
     pos += 1;
+    const running = (flags & 1) !== 0;
+    const connected = (flags & 2) !== 0;
+    if (!connected) {
+      await doDisconnect();
+      return;
+    }
     if (scriptRunning !== running) {
       setScriptRunning(running);
     }
@@ -1651,7 +1691,9 @@ async function doPoll() {
       while (fpsTimestamps.length > 0 && now - fpsTimestamps[0] > 1000) {
         fpsTimestamps.shift();
       }
-      statusFps.textContent = fpsTimestamps.length.toString();
+      const fps = fpsTimestamps.length.toString();
+      statusFps.textContent = fps;
+      fbFps.innerHTML = '<span class="fps-num">' + fps + '</span> FPS';
 
       fbCanvas.width = width;
       fbCanvas.height = height;
@@ -1666,7 +1708,7 @@ async function doPoll() {
         height,
       );
       ctx.putImageData(imageData, 0, 0);
-      showCanvas();
+      showCanvas(format);
     }
   } catch (e) {
     console.error("poll error:", e);
@@ -1676,7 +1718,7 @@ async function doPoll() {
 }
 
 let canvasVisible = false;
-function showCanvas() {
+function showCanvas(format: number) {
   if (!canvasVisible) {
     fbCanvas.style.display = "block";
     fbCanvas.style.maxWidth = "100%";
@@ -1685,7 +1727,7 @@ function showCanvas() {
     fbNoImage.style.display = "none";
     canvasVisible = true;
   }
-  updateHistogram();
+  updateHistogram(format);
 }
 
 // -- Histogram --
@@ -1702,7 +1744,7 @@ function isHistTabActive(): boolean {
   return tab?.classList.contains("active") || false;
 }
 
-function updateHistogram() {
+function updateHistogram(format: number) {
   if (!isHistTabActive()) return;
   if (fbCanvas.width === 0 || fbCanvas.height === 0) return;
   const rect = histCanvas.getBoundingClientRect();
@@ -1715,15 +1757,19 @@ function updateHistogram() {
   const data = imageData.data;
   const n = data.length / 4;
 
-  const binsR = new Uint32Array(256);
-  const binsG = new Uint32Array(256);
-  const binsB = new Uint32Array(256);
+  const isRGB565 = format === 0x0c030002;
+  const binCount = isRGB565 ? 32 : 256;
+  const shift = isRGB565 ? 3 : 0;
+
+  const binsR = new Uint32Array(binCount);
+  const binsG = new Uint32Array(binCount);
+  const binsB = new Uint32Array(binCount);
   const binsL = new Uint32Array(256);
 
   for (let i = 0; i < data.length; i += 4) {
-    binsR[data[i]]++;
-    binsG[data[i + 1]]++;
-    binsB[data[i + 2]]++;
+    binsR[data[i] >> shift]++;
+    binsG[data[i + 1] >> shift]++;
+    binsB[data[i + 2] >> shift]++;
     const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
     binsL[lum]++;
   }
@@ -1735,30 +1781,51 @@ function updateHistogram() {
   const hctx = histCanvas.getContext("2d")!;
   hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const channels: [Uint32Array, string][] = [
-    [binsR, "rgba(240,85,85,0.5)"],
-    [binsG, "rgba(78,201,98,0.5)"],
-    [binsB, "rgba(91,156,245,0.5)"],
-  ];
+  const isGray = format === 0x08020001;
+  const channels: [Uint32Array, string][] = isGray
+    ? [[binsR, "rgba(180,190,200,0.5)"]]
+    : [
+        [binsR, "rgba(240,85,85,0.5)"],
+        [binsG, "rgba(78,201,98,0.5)"],
+        [binsB, "rgba(91,156,245,0.5)"],
+      ];
 
   let maxVal = 1;
   for (const [bins] of channels) {
-    for (let i = 0; i < 256; i++) {
+    for (let i = 0; i < bins.length; i++) {
       if (bins[i] > maxVal) maxVal = bins[i];
     }
   }
 
   for (const [bins, color] of channels) {
-    hctx.fillStyle = color;
-    for (let i = 0; i < 256; i++) {
-      const x0 = Math.floor((i * w) / 256);
-      const x1 = Math.floor(((i + 1) * w) / 256);
-      const barH = (bins[i] / maxVal) * h;
-      hctx.fillRect(x0, h - barH, x1 - x0, barH);
+    const bc = bins.length;
+    // Smooth 256-bin histograms to avoid thin spikes
+    let draw: ArrayLike<number> = bins;
+    if (bc === 256) {
+      const sm = new Float32Array(256);
+      sm[0] = (bins[0] * 2 + bins[1]) / 3;
+      sm[255] = (bins[254] + bins[255] * 2) / 3;
+      for (let i = 1; i < 255; i++) {
+        sm[i] = (bins[i - 1] + bins[i] * 2 + bins[i + 1]) / 4;
+      }
+      draw = sm;
     }
+    hctx.beginPath();
+    hctx.moveTo(0, h);
+    for (let i = 0; i < bc; i++) {
+      const x = ((i + 0.5) * w) / bc;
+      const y = h - (draw[i] / maxVal) * h;
+      if (i === 0) hctx.lineTo(0, y);
+      hctx.lineTo(x, y);
+      if (i === bc - 1) hctx.lineTo(w, y);
+    }
+    hctx.lineTo(w, h);
+    hctx.closePath();
+    hctx.fillStyle = color;
+    hctx.fill();
   }
 
-  // Compute luminance stats
+  // Compute luminance stats (always 256 bins for accuracy)
   let sum = 0,
     min = 255,
     max = 0,

@@ -27,7 +27,7 @@ impl Camera {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.transport.is_some()
+        self.transport.as_ref().is_some_and(|t| t.port_alive())
     }
 
     pub fn connect(&mut self, port: &str, baudrate: u32) -> Result<(), ProtocolError> {
@@ -311,9 +311,9 @@ impl Camera {
         self.ch_ioctl(id, ioctl::STDIN_STOP, &[])
     }
 
-    pub fn enable_streaming(&mut self, enable: bool) -> Result<(), ProtocolError> {
+    pub fn enable_streaming(&mut self, enable: bool, raw: bool) -> Result<(), ProtocolError> {
         let id = self.ch("stream")?;
-        self.ch_ioctl(id, ioctl::STREAM_RAW_CTRL, &[0])?;
+        self.ch_ioctl(id, ioctl::STREAM_RAW_CTRL, &[raw as u32])?;
         self.ch_ioctl(id, ioctl::STREAM_CTRL, &[enable as u32])
     }
 
@@ -427,7 +427,7 @@ impl Camera {
         }))
     }
 
-    fn ch_active(&self, poll_flags: u32, name: &str) -> bool {
+    fn ch_status(&self, poll_flags: u32, name: &str) -> bool {
         self.channels.get(name).map_or(false, |&id| poll_flags & (1 << id) != 0)
     }
 
@@ -442,9 +442,9 @@ impl Camera {
             }
         };
 
-        let script_running = self.ch_active(poll_flags, "stdin");
+        let script_running = self.ch_status(poll_flags, "stdin");
 
-        let stdout = if !need_resync && self.ch_active(poll_flags, "stdout") {
+        let stdout = if !need_resync && self.ch_status(poll_flags, "stdout") {
             match self.read_stdout(false) {
                 Ok(s) => s,
                 Err(_) => {
@@ -456,7 +456,7 @@ impl Camera {
             None
         };
 
-        let frame = if !need_resync {
+        let frame = if !need_resync && self.ch_status(poll_flags, "stream") {
             match self.read_frame() {
                 Ok(f) => f,
                 Err(e) => {
@@ -473,10 +473,16 @@ impl Camera {
             let _ = self.resync();
         }
 
+        let connected = self.is_connected();
+        if !connected {
+            self.disconnect();
+        }
+
         PollResult {
             stdout,
             frame,
             script_running,
+            connected,
         }
     }
 

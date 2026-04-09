@@ -27,4 +27,5 @@ tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
 tauri-plugin-fs = "2"
 crc = "3.4"
+open = "5"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
