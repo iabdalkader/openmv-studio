@@ -615,7 +615,10 @@ document.querySelectorAll(".tools-tab").forEach((tab) => {
     const body = document.querySelector(
       `.tools-body[data-tool="${tool}"]`,
     ) as HTMLElement;
-    if (body) body.style.display = "";
+    if (body) {
+      body.style.display = "";
+      body.scrollTop = 0;
+    }
     if (tool === "memory") startMemPolling();
     else stopMemPolling();
     if (tool === "protocol") startProtoPolling();
@@ -729,6 +732,20 @@ function drawMemGraph(
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
+
+  // Peak line
+  const peak = Math.max(...history.map((s) => s.used));
+  if (peak > 0) {
+    const peakY = h - (peak / maxTotal) * h;
+    ctx.strokeStyle = "rgba(240,85,85,0.5)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, peakY);
+    ctx.lineTo(w, peakY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 
 function memUsed(e: any): number {
