@@ -445,7 +445,6 @@ const fbFps = document.getElementById("fb-fps")!;
 
 wglInit(fbCanvas);
 
-const fpsTimestamps: number[] = [];
 
 // Reusable frame buffer -- grows as needed, never shrinks
 let frameBuf = new ArrayBuffer(0);
@@ -589,6 +588,9 @@ function handlePollMessage(raw: ArrayBuffer) {
     const format = view.getUint32(pos, true);
     pos += 4;
 
+    const fps = view.getFloat32(pos, true);
+    pos += 4;
+
     const dataLen = raw.byteLength - pos;
 
     fbResolution.textContent = `${width} x ${height}`;
@@ -601,18 +603,11 @@ function handlePollMessage(raw: ArrayBuffer) {
             ? "GRAY"
             : `0x${format.toString(16).toUpperCase()}`;
 
-    const now = performance.now();
-
-    fpsTimestamps.push(now);
-
-    while (fpsTimestamps.length > 0 && now - fpsTimestamps[0] > 1000) {
-      fpsTimestamps.shift();
+    if (fps > 0) {
+      const fpsStr = fps.toFixed(1);
+      statusFps.textContent = fpsStr;
+      fbFps.innerHTML = '<span class="fps-num">' + fpsStr + "</span> FPS";
     }
-
-    const fps = fpsTimestamps.length.toString();
-
-    statusFps.textContent = fps;
-    fbFps.innerHTML = '<span class="fps-num">' + fps + "</span> FPS";
 
     if (dataLen > frameBuf.byteLength) {
       frameBuf = new ArrayBuffer(dataLen);

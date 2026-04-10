@@ -17,6 +17,7 @@ pub struct FrameInfo {
     pub width: u32,
     pub height: u32,
     pub format: u32,
+    pub fps: f32,
     pub data: Vec<u8>,
 }
 
@@ -274,6 +275,7 @@ impl Camera {
         Ok(())
     }
 
+
     // -- Public operations --
 
     pub fn memory_stats(&mut self) -> Result<Vec<MemEntry>, TransportError> {
@@ -378,12 +380,12 @@ impl Camera {
 
     fn read_frame_locked(&mut self, id: u8) -> Result<Option<FrameInfo>, TransportError> {
         let size = self.ch_size(id, false)?;
-        if size <= 20 {
+        if size <= 24 {
             return Ok(None);
         }
 
         let data = self.ch_read(id, 0, size, false)?;
-        if data.len() < 20 {
+        if data.len() < 24 {
             return Ok(None);
         }
 
@@ -391,6 +393,7 @@ impl Camera {
         let height = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
         let format = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
         let offset = u32::from_le_bytes([data[16], data[17], data[18], data[19]]) as usize;
+        let fps = f32::from_le_bytes([data[20], data[21], data[22], data[23]]);
         let raw = &data[offset..];
         let pixels = (width as usize).saturating_mul(height as usize);
 
@@ -406,6 +409,7 @@ impl Camera {
             width,
             height,
             format,
+            fps,
             data: raw.to_vec(),
         }))
     }
