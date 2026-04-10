@@ -12,6 +12,7 @@ import { wglInit, wglDrawRgb565, wglDrawGrayscale, wglDrawBitmap } from "./gl";
 import { initResize } from "./resize";
 import { initShortcuts, setShortcutBindings, type ShortcutBinding } from "./shortcuts";
 import { initWelcome } from "./welcome";
+import { registerCompletions } from "./completions";
 import {
   initFiles,
   openFiles,
@@ -113,12 +114,15 @@ const editor = monaco.editor.create(document.getElementById("monaco-editor")!, {
   folding: true,
   cursorBlinking: "smooth",
   smoothScrolling: true,
+  fixedOverflowWidgets: true,
   tabSize: 4,
   insertSpaces: true,
-  quickSuggestions: false,
+  quickSuggestions: true,
   wordBasedSuggestions: "off",
-  suggestOnTriggerCharacters: false,
+  suggestOnTriggerCharacters: true,
 });
+
+registerCompletions(editor);
 
 editor.onDidChangeCursorPosition((e) => {
   const el = document.getElementById("status-cursor");
