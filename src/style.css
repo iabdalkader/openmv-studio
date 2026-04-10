@@ -121,10 +121,24 @@ body {
 }
 
 /* ---- TAB BAR ---- */
+.tab-bar-container {
+  display: flex; align-items: stretch;
+  background: var(--bg-panel); border-bottom: 1px solid var(--border-subtle);
+  height: 32px; overflow: hidden;
+}
+.tab-scroll-btn {
+  display: none; width: 20px; flex-shrink: 0;
+  background: var(--bg-panel); border: none; color: var(--text-tertiary);
+  cursor: pointer; font-size: 11px; padding: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tab-scroll-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tab-scroll-btn.visible { display: flex; align-items: center; justify-content: center; }
+.tab-scroll-btn.left { border-right: 1px solid var(--border-subtle); }
+.tab-scroll-btn.right { border-left: 1px solid var(--border-subtle); }
 .tab-bar {
   display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden;
-  background: var(--bg-panel); border-bottom: 1px solid var(--border-subtle);
-  gap: 0; scrollbar-width: none;
+  flex: 1; gap: 0; scrollbar-width: none;
 }
 .tab-bar::-webkit-scrollbar { display: none; }
 .tab {

@@ -89,7 +89,11 @@
       <!-- Welcome screen (replaces tab bar + editor when no files open) -->
       <div class="welcome-screen" id="welcome-screen" style="display:none"></div>
       <!-- Tab bar + Editor + Terminal -->
-      <div class="tab-bar" id="tab-bar"></div>
+      <div class="tab-bar-container" id="tab-bar-container">
+        <button class="tab-scroll-btn left" id="tab-scroll-left">&lt;</button>
+        <div class="tab-bar" id="tab-bar"></div>
+        <button class="tab-scroll-btn right" id="tab-scroll-right">&gt;</button>
+      </div>
       <div class="editor-area">
         <div id="monaco-editor"></div>
       </div>
@@ -118,9 +122,6 @@
       <div class="fb-section">
         <div class="fb-header">
           <div class="fb-header-strip">
-            <span class="info-badge badge-res" id="fb-resolution"></span>
-            <span class="info-badge badge-format" id="fb-format"></span>
-            <span class="info-badge badge-fps" id="fb-fps"></span>
             <div style="flex:1"></div>
             <select id="fb-source" disabled><option value="">No sensor</option></select>
             <button class="fb-btn active" id="btn-fb-disable" title="Disable streaming">
@@ -132,6 +133,11 @@
           </div>
         </div>
         <div class="fb-viewport">
+          <div class="fb-overlay-badges">
+            <span class="info-badge badge-res" id="fb-resolution"></span>
+            <span class="info-badge badge-format" id="fb-format"></span>
+            <span class="info-badge badge-fps" id="fb-fps"></span>
+          </div>
           <div class="no-image">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             <span>No image data</span>

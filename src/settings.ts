@@ -123,8 +123,10 @@ export async function loadSettings() {
     if (ui?.filterExamples !== undefined) { state.filterExamples = ui.filterExamples; }
 
     if (ui?.gridCols) {
+      // Always restore with side panel closed
+      const cols = ui.gridCols.replace(/^\s*56px\s+\d+px/, "56px 0px");
       document.querySelector<HTMLElement>(".ide-layout")!
-        .style.gridTemplateColumns = ui.gridCols;
+        .style.gridTemplateColumns = cols;
     }
 
     if (ui?.gridRows) {

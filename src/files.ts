@@ -18,6 +18,7 @@ export interface OpenFile {
   modified: boolean;
   isExample: boolean;
   untitledIndex: number | null;
+  savedContent: string;
 }
 
 let editor: monaco.editor.IStandaloneCodeEditor;
@@ -179,10 +180,50 @@ function initTabDrag(tab: HTMLElement, index: number) {
   });
 }
 
+function updateScrollButtons() {
+  const bar = document.getElementById("tab-bar")!;
+  const left = document.getElementById("tab-scroll-left")!;
+  const right = document.getElementById("tab-scroll-right")!;
+  const overflows = bar.scrollWidth > bar.clientWidth;
+
+  left.classList.toggle("visible", overflows && bar.scrollLeft > 0);
+  right.classList.toggle("visible",
+    overflows && bar.scrollLeft < bar.scrollWidth - bar.clientWidth - 1);
+}
+
+let tabScrollInit = false;
+
+function initTabScroll() {
+  if (tabScrollInit) { return; }
+  tabScrollInit = true;
+
+  const bar = document.getElementById("tab-bar")!;
+  const left = document.getElementById("tab-scroll-left")!;
+  const right = document.getElementById("tab-scroll-right")!;
+
+  left.addEventListener("click", () => {
+    bar.scrollBy({ left: -120, behavior: "smooth" });
+  });
+
+  right.addEventListener("click", () => {
+    bar.scrollBy({ left: 120, behavior: "smooth" });
+  });
+
+  bar.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    bar.scrollLeft += e.deltaY || e.deltaX;
+  }, { passive: false });
+
+  bar.addEventListener("scroll", updateScrollButtons);
+
+  new ResizeObserver(updateScrollButtons).observe(bar);
+}
+
 export function renderTabs() {
   const bar = document.getElementById("tab-bar")!;
 
   bar.innerHTML = "";
+  initTabScroll();
 
   openFiles.forEach((f, i) => {
     const tab = document.createElement("div");
@@ -230,6 +271,15 @@ export function renderTabs() {
 
     bar.appendChild(tab);
   });
+
+  // Scroll active tab into view
+  const activeTab = bar.children[activeFileIndex] as HTMLElement | undefined;
+
+  if (activeTab) {
+    activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  updateScrollButtons();
 }
 
 export async function newFile() {
