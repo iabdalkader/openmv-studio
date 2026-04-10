@@ -57,6 +57,7 @@ export function createFile(
     modified: false,
     isExample,
     untitledIndex,
+    savedContent: content,
   };
 
   model.onDidChangeContent(() => {
@@ -65,8 +66,13 @@ export function createFile(
       file.path = null;
     }
 
-    file.modified = true;
-    renderTabs();
+    const wasModified = file.modified;
+    file.modified = file.path === null || model.getValue() !== file.savedContent;
+
+    if (wasModified !== file.modified) {
+      renderTabs();
+    }
+
     scheduleSaveSettings();
   });
 
@@ -331,11 +337,14 @@ export async function saveFile() {
   }
 
   try {
+    const content = f.model.getValue();
+
     await invoke("cmd_write_file", {
       path: f.path,
-      content: f.model.getValue(),
+      content,
     });
 
+    f.savedContent = content;
     f.modified = false;
     renderTabs();
   } catch (e: any) {
@@ -361,11 +370,14 @@ export async function saveFileAs() {
   f.path = path;
 
   try {
+    const content = f.model.getValue();
+
     await invoke("cmd_write_file", {
       path: f.path,
-      content: f.model.getValue(),
+      content,
     });
 
+    f.savedContent = content;
     f.modified = false;
     renderTabs();
   } catch (e: any) {
