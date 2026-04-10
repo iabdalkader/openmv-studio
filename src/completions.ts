@@ -231,6 +231,7 @@ function registerProviders() {
       };
     },
   });
+
 }
 
 // -- Boot ------------------------------------------------------------------
@@ -318,6 +319,7 @@ export async function registerCompletions(
     settings: {
       python: {
         analysis: {
+          stubPath: "/",
           extraPaths: ["/"],
           typeshedPaths: [],
           diagnosticMode: "openFilesOnly",

@@ -13,6 +13,7 @@ import { initResize } from "./resize";
 import { initShortcuts, setShortcutBindings, type ShortcutBinding } from "./shortcuts";
 import { initWelcome } from "./welcome";
 import { registerCompletions } from "./completions";
+import { registerPythonLanguage } from "./python-lang";
 import {
   initFiles,
   openFiles,
@@ -98,6 +99,7 @@ self.MonacoEnvironment = {
 
 // --- Editor ---
 
+registerPythonLanguage();
 initThemes();
 
 const editor = monaco.editor.create(document.getElementById("monaco-editor")!, {
