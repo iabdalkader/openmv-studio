@@ -10,7 +10,14 @@ import {
   type ThemeSetting,
   setScheduleSaveSettings,
 } from "./state";
-import { openFiles, activeFileIndex, createFile, switchToFile } from "./files";
+import {
+  openFiles,
+  activeFileIndex,
+  createFile,
+  switchToFile,
+  recentFiles,
+  setRecentFiles,
+} from "./files";
 import { showWelcome } from "./welcome";
 import { loadExamples, resetExamples, clearExamplesTree } from "./panels";
 import {
@@ -97,6 +104,7 @@ export async function saveSettings() {
         .map((f) => f.path)
         .filter(Boolean),
       activeFile: openFiles[activeFileIndex]?.path || null,
+      recentFiles: recentFiles,
     });
 
     await s.save();
@@ -181,13 +189,22 @@ export async function loadSettings() {
     const files = await s.get<{
       openFiles?: string[];
       activeFile?: string | null;
+      recentFiles?: string[];
     }>("files");
+
+    if (files?.recentFiles) {
+      setRecentFiles(files.recentFiles);
+    }
 
     if (files?.openFiles && files.openFiles.length > 0) {
       for (const path of files.openFiles) {
         try {
           const content = await invoke<string>("cmd_read_file", { path });
-          createFile(path, content);
+          const f = createFile(path, content);
+
+          try {
+            f.mtime = await invoke<number>("cmd_file_mtime", { path });
+          } catch {}
         } catch {
           // File no longer exists -- skip
         }

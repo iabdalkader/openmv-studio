@@ -45,7 +45,7 @@ export function initWelcome(newFile: () => void, openFile: () => void) {
 }
 
 export function showWelcome() {
-  document.getElementById("tab-bar")!.style.display = "none";
+  document.getElementById("tab-bar-container")!.style.display = "none";
   document.querySelector<HTMLElement>(".editor-area")!.style.display = "none";
 
   if (!initialized) {
@@ -65,6 +65,6 @@ export function showWelcome() {
 
 export function hideWelcome() {
   welcomeEl.style.display = "none";
-  document.getElementById("tab-bar")!.style.display = "";
+  document.getElementById("tab-bar-container")!.style.display = "";
   document.querySelector<HTMLElement>(".editor-area")!.style.display = "";
 }

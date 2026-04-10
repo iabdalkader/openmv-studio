@@ -24,6 +24,11 @@ import {
   closeFile,
   switchToFile,
   renderTabs,
+  startFileWatching,
+  openRecentFile,
+  recentFiles,
+  setRecentFiles,
+  updateRecentMenu,
 } from "./files";
 import {
   initPanels,
@@ -806,6 +811,8 @@ loadSettings().then(() => {
   setUiScale(state.uiScale);
   applyTheme(state.currentThemeSetting);
   renderTabs();
+  startFileWatching();
+  updateRecentMenu();
 
   if (!state.filterExamples) {
     loadExamples();
@@ -887,6 +894,17 @@ listen<string>("menu-action", (event) => {
       saveFileAs();
       break;
     default:
-      console.log("Menu:", action);
+      if (action.startsWith("recent:")) {
+        const idx = parseInt(action.slice(7), 10);
+
+        if (idx >= 0 && idx < recentFiles.length) {
+          openRecentFile(recentFiles[idx]);
+        }
+      } else if (action === "recent-clear") {
+        setRecentFiles([]);
+        updateRecentMenu();
+      } else {
+        console.log("Menu:", action);
+      }
   }
 });

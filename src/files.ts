@@ -7,6 +7,7 @@ import {
   open,
   save,
   message as dialogMessage,
+  ask,
 } from "@tauri-apps/plugin-dialog";
 import { scheduleSaveSettings } from "./state";
 import { showWelcome, hideWelcome } from "./welcome";
@@ -19,6 +20,7 @@ export interface OpenFile {
   isExample: boolean;
   untitledIndex: number | null;
   savedContent: string;
+  mtime: number;
 }
 
 let editor: monaco.editor.IStandaloneCodeEditor;
@@ -63,6 +65,7 @@ export function createFile(
     isExample,
     untitledIndex,
     savedContent: content,
+    mtime: 0,
   };
 
   model.onDidChangeContent(() => {
@@ -348,7 +351,12 @@ export async function openFileDialog() {
 
   try {
     const content = await invoke<string>("cmd_read_file", { path: filePath });
-    createFile(filePath, content);
+    const f = createFile(filePath, content);
+
+    try {
+      f.mtime = await invoke<number>("cmd_file_mtime", { path: filePath });
+    } catch {}
+
     switchToFile(openFiles.length - 1);
   } catch (e: any) {
     console.error("Open failed:", e);
@@ -377,6 +385,11 @@ export async function saveFile() {
 
     f.savedContent = content;
     f.modified = false;
+
+    try {
+      f.mtime = await invoke<number>("cmd_file_mtime", { path: f.path! });
+    } catch {}
+
     renderTabs();
   } catch (e: any) {
     console.error("Save failed:", e);
@@ -414,6 +427,11 @@ export async function saveFileAs() {
 
     f.savedContent = content;
     f.modified = false;
+
+    try {
+      f.mtime = await invoke<number>("cmd_file_mtime", { path: f.path! });
+    } catch {}
+
     renderTabs();
   } catch (e: any) {
     console.error("Save failed:", e);
@@ -450,6 +468,10 @@ export async function closeFile(index: number) {
     }
   }
 
+  if (f.path && !f.isExample) {
+    addRecentFile(f.path);
+  }
+
   f.model.dispose();
   openFiles.splice(index, 1);
 
@@ -466,4 +488,130 @@ export async function closeFile(index: number) {
 
   switchToFile(activeFileIndex);
   scheduleSaveSettings();
+}
+
+// --- Recent files ---
+
+const MAX_RECENT = 10;
+export let recentFiles: string[] = [];
+
+export function setRecentFiles(paths: string[]) {
+  recentFiles = paths;
+}
+
+function addRecentFile(path: string) {
+  recentFiles = recentFiles.filter((p) => p !== path);
+  recentFiles.unshift(path);
+
+  if (recentFiles.length > MAX_RECENT) {
+    recentFiles.length = MAX_RECENT;
+  }
+
+  updateRecentMenu();
+  scheduleSaveSettings();
+}
+
+export function updateRecentMenu() {
+  console.log("updateRecentMenu called with", recentFiles.length, "files");
+  invoke("cmd_update_recent_menu", { paths: recentFiles }).catch((e) => {
+    console.error("Failed to update recent menu:", e);
+  });
+}
+
+export async function openRecentFile(path: string) {
+  hideWelcome();
+
+  const existing = openFiles.findIndex((f) => f.path === path);
+
+  if (existing >= 0) {
+    switchToFile(existing);
+    return;
+  }
+
+  try {
+    const content = await invoke<string>("cmd_read_file", { path });
+    const f = createFile(path, content);
+
+    try {
+      f.mtime = await invoke<number>("cmd_file_mtime", { path });
+    } catch {}
+
+    // Remove from recents since it's now open in a tab
+    recentFiles = recentFiles.filter((p) => p !== path);
+    updateRecentMenu();
+    scheduleSaveSettings();
+    switchToFile(openFiles.length - 1);
+  } catch (e: any) {
+    console.error("Open recent failed:", e);
+    recentFiles = recentFiles.filter((p) => p !== path);
+    updateRecentMenu();
+    scheduleSaveSettings();
+  }
+}
+
+// --- File watching ---
+
+let watchTimer: number | null = null;
+let watchInFlight = false;
+
+export function startFileWatching() {
+  stopFileWatching();
+  watchTimer = window.setInterval(checkFilesForChanges, 2000);
+}
+
+export function stopFileWatching() {
+  if (watchTimer !== null) {
+    clearInterval(watchTimer);
+    watchTimer = null;
+  }
+}
+
+async function checkFilesForChanges() {
+  if (watchInFlight) {
+    return;
+  }
+
+  watchInFlight = true;
+
+  try {
+    for (const f of openFiles) {
+      if (!f.path || f.mtime === 0) {
+        continue;
+      }
+
+      let currentMtime: number;
+
+      try {
+        currentMtime = await invoke<number>("cmd_file_mtime", { path: f.path });
+      } catch {
+        continue;
+      }
+
+      if (currentMtime <= f.mtime) {
+        continue;
+      }
+
+      f.mtime = currentMtime;
+
+      const reload = await ask(
+        `${fileName(f)} has been modified externally. Reload?`,
+        { title: "File Changed", kind: "info" },
+      );
+
+      if (reload) {
+        try {
+          const content = await invoke<string>("cmd_read_file", { path: f.path });
+
+          f.savedContent = content;
+          f.model.setValue(content);
+          f.modified = false;
+          renderTabs();
+        } catch (e: any) {
+          console.error("Reload failed:", e);
+        }
+      }
+    }
+  } finally {
+    watchInFlight = false;
+  }
 }

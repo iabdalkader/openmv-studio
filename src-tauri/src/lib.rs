@@ -543,8 +543,102 @@ fn cmd_read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn cmd_file_mtime(path: String) -> Result<u64, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {}", path, e))?;
+    let mtime = meta
+        .modified()
+        .map_err(|e| format!("{}: {}", path, e))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    Ok(mtime)
+}
+
+#[tauri::command]
 fn cmd_write_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, &content).map_err(|e| format!("{}: {}", path, e))
+}
+
+#[tauri::command]
+fn find_submenu_by_id(
+    menu: &tauri::menu::Menu<tauri::Wry>,
+    id: &str,
+) -> Option<tauri::menu::Submenu<tauri::Wry>> {
+    for item in menu.items().ok()? {
+        if let Some(sub) = item.as_submenu() {
+            if sub.id().0 == id {
+                return Some(sub.clone());
+            }
+
+            // Search one level deeper
+            for child in sub.items().ok()? {
+                if let Some(child_sub) = child.as_submenu() {
+                    if child_sub.id().0 == id {
+                        return Some(child_sub.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn cmd_update_recent_menu(paths: Vec<String>, app: tauri::AppHandle) -> Result<(), String> {
+    let menu = app.menu().or_else(|| {
+        app.get_webview_window("main").and_then(|w| w.menu())
+    });
+
+    let Some(menu) = menu else {
+        log::warn!("No menu found");
+        return Ok(());
+    };
+
+    let Some(recent) = find_submenu_by_id(&menu, "open-recent") else {
+        log::warn!("Open Recent submenu not found");
+        return Ok(());
+    };
+
+    // Clear existing items
+    // Submenu doesn't have a clear method, so remove items one by one
+    loop {
+        match recent.items() {
+            Ok(items) if !items.is_empty() => {
+                for item in &items {
+                    let _ = recent.remove(item);
+                }
+            }
+            _ => break,
+        }
+    }
+
+    if paths.is_empty() {
+        recent.append(
+            &MenuItemBuilder::with_id("recent-none", "(No recent files)")
+                .enabled(false)
+                .build(&app)
+                .map_err(|e| e.to_string())?,
+        ).map_err(|e| e.to_string())?;
+    } else {
+        for (i, path) in paths.iter().enumerate() {
+            let label = path.rsplit('/').next().unwrap_or(path);
+            recent.append(
+                &MenuItemBuilder::with_id(format!("recent:{}", i), label)
+                    .build(&app)
+                    .map_err(|e| e.to_string())?,
+            ).map_err(|e| e.to_string())?;
+        }
+
+        recent.append(&tauri::menu::PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        recent.append(
+            &MenuItemBuilder::with_id("recent-clear", "Clear Recent Files")
+                .build(&app)
+                .map_err(|e| e.to_string())?,
+        ).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 fn build_menu(
@@ -569,10 +663,14 @@ fn build_menu(
         )
         .build()?;
 
+    let open_recent = SubmenuBuilder::with_id(app, "open-recent", "Open Recent")
+        .text("recent-none", "(No recent files)")
+        .build()?;
+
     let file = SubmenuBuilder::new(app, "File")
         .text("new", "New")
         .text("open", "Open...")
-        .text("open-recent", "Open Recent")
+        .item(&open_recent)
         .separator()
         .text("save", "Save")
         .text("save-as", "Save As...")
@@ -677,6 +775,8 @@ pub fn run() {
             cmd_list_examples,
             cmd_read_file,
             cmd_write_file,
+            cmd_file_mtime,
+            cmd_update_recent_menu,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
