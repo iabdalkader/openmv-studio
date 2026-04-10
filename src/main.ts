@@ -115,6 +115,9 @@ const editor = monaco.editor.create(document.getElementById("monaco-editor")!, {
   smoothScrolling: true,
   tabSize: 4,
   insertSpaces: true,
+  quickSuggestions: false,
+  wordBasedSuggestions: "off",
+  suggestOnTriggerCharacters: false,
 });
 
 editor.onDidChangeCursorPosition((e) => {
