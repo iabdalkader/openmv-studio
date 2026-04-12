@@ -287,13 +287,18 @@ function drawMemGraph(
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
+  const bw = Math.round(w * dpr);
+  const bh = Math.round(h * dpr);
 
   const ctx = canvas.getContext("2d")!;
 
-  ctx.scale(dpr, dpr);
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+    ctx.scale(dpr, dpr);
+  } else {
+    ctx.clearRect(0, 0, w, h);
+  }
 
   ctx.fillStyle =
     getComputedStyle(canvas).getPropertyValue("--bg-deep").trim() || "#0a0a0c";

@@ -61,7 +61,10 @@ function initVerticalResize() {
         h = maBottom - toolsTop;
       }
 
-      mainArea.style.gridTemplateRows = `32px 1fr 4px ${h}px`;
+      const maH = mainArea.getBoundingClientRect().height / state.uiScale;
+      const pct = (h / maH) * 100;
+
+      mainArea.style.gridTemplateRows = `32px 1fr 4px ${pct}%`;
     };
 
     const onUp = () => {
@@ -89,23 +92,34 @@ function initFbToolsResize() {
     e.preventDefault();
     handle.classList.add("active");
 
+    const rp = document.querySelector(".right-panel") as HTMLElement;
     const fb = document.querySelector(".fb-section") as HTMLElement;
     const tools = document.querySelector(".tools-panel") as HTMLElement;
     const startY = e.clientY / state.uiScale;
     const startFbH = fb.getBoundingClientRect().height / state.uiScale;
-    const startToolsH = tools.getBoundingClientRect().height / state.uiScale;
-    const totalH = startFbH + startToolsH;
+    const rpH = rp.getBoundingClientRect().height / state.uiScale;
+    const rpTop = rp.getBoundingClientRect().top / state.uiScale;
+    const handleH = 4;
 
     const onMove = (e: MouseEvent) => {
       const delta = e.clientY / state.uiScale - startY;
-      const fbH = Math.max(80, Math.min(totalH - 80, startFbH + delta));
-      const toolsH = snapToolsToTerminal(totalH - fbH);
-      const adjFbH = totalH - toolsH;
+      let fbH = Math.max(80, Math.min(rpH - handleH - 80, startFbH + delta));
+      const toolsTop = rpTop + fbH + handleH;
+      const termTop = getTerminalTopY();
+
+      if (Math.abs(toolsTop - termTop) < SNAP_PX) {
+        fbH = termTop - rpTop - handleH;
+      }
+
+      const toolsH = rpH - fbH - handleH;
+
+      const fbPct = (fbH / rpH) * 100;
+      const toolsPct = (toolsH / rpH) * 100;
 
       fb.style.flex = "none";
       tools.style.flex = "none";
-      fb.style.height = adjFbH + "px";
-      tools.style.height = toolsH + "px";
+      fb.style.height = fbPct + "%";
+      tools.style.height = toolsPct + "%";
     };
 
     const onUp = () => {
@@ -168,15 +182,3 @@ function getTerminalTopY(): number {
   return tp.getBoundingClientRect().top / state.uiScale;
 }
 
-function snapToolsToTerminal(toolsH: number): number {
-  const rp = document.querySelector(".right-panel") as HTMLElement;
-  const rpRect = rp.getBoundingClientRect();
-  const toolsTop = rpRect.bottom / state.uiScale - toolsH;
-  const termTop = getTerminalTopY();
-
-  if (Math.abs(toolsTop - termTop) < SNAP_PX) {
-    return rpRect.bottom / state.uiScale - termTop;
-  }
-
-  return toolsH;
-}

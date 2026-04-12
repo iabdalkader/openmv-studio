@@ -75,8 +75,11 @@ export function setUiScale(scale: number) {
 export async function saveSettings() {
   try {
     const s = await getStore();
+    const rp = document.querySelector<HTMLElement>(".right-panel");
     const tools = document.querySelector(".tools-panel") as HTMLElement;
+    const rpH = rp ? rp.getBoundingClientRect().height / state.uiScale : 0;
     const toolsH = tools?.getBoundingClientRect().height / state.uiScale;
+    const toolsPct = rpH > 0 ? (toolsH / rpH) * 100 : 50;
     const layoutEl = document.querySelector<HTMLElement>(".ide-layout")!;
     const mainArea = document.querySelector<HTMLElement>(".main-area")!;
 
@@ -85,7 +88,7 @@ export async function saveSettings() {
       theme: state.currentThemeSetting,
       gridCols: layoutEl.style.gridTemplateColumns || "",
       gridRows: mainArea.style.gridTemplateRows || "",
-      toolsHeight: toolsH,
+      toolsPct: toolsPct,
       pollInterval: state.pollIntervalMs,
       filterExamples: state.filterExamples,
     });
@@ -124,7 +127,8 @@ export async function loadSettings() {
       gridCols?: string;
       gridRows?: string;
       fbRatio?: number; // legacy
-      toolsHeight?: number;
+      toolsHeight?: number; // legacy
+      toolsPct?: number;
       pollInterval?: number;
       filterExamples?: boolean;
     }>("ui");
@@ -157,14 +161,16 @@ export async function loadSettings() {
         .style.gridTemplateRows = ui.gridRows;
     }
 
-    if (ui?.toolsHeight !== undefined) {
+    const toolsPct = ui?.toolsPct;
+
+    if (toolsPct !== undefined) {
       const fb = document.querySelector<HTMLElement>(".fb-section");
       const tools = document.querySelector<HTMLElement>(".tools-panel");
 
       if (fb && tools) {
         fb.style.flex = "1";
         tools.style.flex = "none";
-        tools.style.height = ui.toolsHeight + "px";
+        tools.style.height = toolsPct + "%";
       }
     }
 
