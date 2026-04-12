@@ -65,7 +65,9 @@ enum ParseState {
 }
 
 pub struct Transport {
-    port: Box<dyn serialport::SerialPort>,
+    serial: Option<Box<dyn serialport::SerialPort>>,
+    baudrate: u32,
+    port: String,
     timeout: Duration,
     pub max_payload: usize,
 
@@ -85,16 +87,25 @@ pub struct Transport {
     read_buf: Vec<u8>,
 }
 
+impl Drop for Transport {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 impl Transport {
     pub fn new(
-        port: Box<dyn serialport::SerialPort>,
+        port: &str,
+        baudrate: u32,
         crc: bool,
         seq: bool,
         max_payload: usize,
         timeout: Duration,
-    ) -> Self {
-        Self {
-            port,
+    ) -> Result<Self, TransportError> {
+        let mut t = Self {
+            serial: None,
+            baudrate,
+            port: port.to_string(),
             timeout,
             max_payload,
             sequence: 0,
@@ -106,11 +117,38 @@ impl Transport {
             pos: 0,
             pbuf: vec![0u8; max_payload + HEADER_SIZE + CRC_SIZE],
             read_buf: vec![0u8; 16384],
-        }
+        };
+        t.open()?;
+        Ok(t)
     }
 
-    pub fn port_alive(&self) -> bool {
-        self.port.bytes_to_read().is_ok()
+    pub fn open(&mut self) -> Result<(), TransportError> {
+        self.close();
+        let mut serial = serialport::new(&self.port, self.baudrate)
+            .timeout(self.timeout)
+            .open()
+            .map_err(|e| TransportError::IoError(e.to_string()))?;
+        let _ = serial.clear(serialport::ClearBuffer::All);
+        std::thread::sleep(Duration::from_millis(100));
+        let _ = serial.clear(serialport::ClearBuffer::All);
+        self.serial = Some(serial);
+        self.buf.clear();
+        self.pos = 0;
+        self.state = ParseState::Sync;
+        Ok(())
+    }
+
+    pub fn close(&mut self) {
+        if let Some(ref mut s) = self.serial {
+            let _ = s.flush();
+        }
+        self.serial = None;
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.serial
+            .as_ref()
+            .is_some_and(|s| s.bytes_to_read().is_ok())
     }
 
     pub fn reset_sequence(&mut self) {
@@ -165,6 +203,9 @@ impl Transport {
         flags: PacketFlags,
         data: Option<&[u8]>,
     ) -> Result<(), TransportError> {
+        if !self.is_connected() {
+            return Err(TransportError::NotConnected);
+        }
         let length = data.map_or(0, |d| d.len());
         if length > self.max_payload {
             return Err(TransportError::PayloadTooLarge);
@@ -190,7 +231,8 @@ impl Transport {
         }
 
         let total = HEADER_SIZE + length + if length > 0 { CRC_SIZE } else { 0 };
-        self.port
+        let serial = self.serial.as_mut().ok_or(TransportError::NotConnected)?;
+        serial
             .write_all(&self.pbuf[..total])
             .map_err(|e| TransportError::IoError(e.to_string()))?;
 
@@ -199,6 +241,9 @@ impl Transport {
 
     /// Receive a packet. Returns Ok(Some(payload)) for data, Ok(None) for ACK, Err for failures.
     pub fn recv_packet(&mut self) -> Result<Option<Vec<u8>>, TransportError> {
+        if !self.is_connected() {
+            return Err(TransportError::NotConnected);
+        }
         let mut fragments: Vec<u8> = Vec::new();
         let mut deadline = Instant::now() + self.timeout;
 
@@ -208,11 +253,12 @@ impl Transport {
             }
 
             // Read all available serial data
+            let serial = self.serial.as_mut().ok_or(TransportError::NotConnected)?;
             loop {
-                match self.port.bytes_to_read() {
+                match serial.bytes_to_read() {
                     Ok(n) if n > 0 => {
                         let to_read = (n as usize).min(self.read_buf.len());
-                        match self.port.read(&mut self.read_buf[..to_read]) {
+                        match serial.read(&mut self.read_buf[..to_read]) {
                             Ok(n) => {
                                 self.buf.extend_from_slice(&self.read_buf[..n]);
                             }

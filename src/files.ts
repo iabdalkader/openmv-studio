@@ -542,7 +542,6 @@ function addRecentFile(path: string) {
 }
 
 export function updateRecentMenu() {
-  console.log("updateRecentMenu called with", recentFiles.length, "files");
   invoke("cmd_update_recent_menu", { paths: recentFiles }).catch((e) => {
     console.error("Failed to update recent menu:", e);
   });

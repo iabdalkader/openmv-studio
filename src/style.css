@@ -346,7 +346,7 @@ body {
   display: flex; flex-direction: column; overflow: hidden;
 }
 .fb-section {
-  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
 }
 .fb-btn {
   font-size: 11px; font-weight: 500; padding: 2px 8px; border: none;
@@ -415,7 +415,7 @@ body {
 
 /* ---- TOOLS PANEL (tabbed: Histogram, Controls, Performance, Stats) ---- */
 .tools-panel {
-  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  flex: 1; display: flex; flex-direction: column; min-height: 200px;
   border-top: 1px solid var(--border-subtle);
 }
 .tools-tabs {
@@ -660,7 +660,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 10px; color: var(--text-secondary); font-family: var(--font-code);
   min-width: 48px; text-align: right;
 }
-.memory-panel { display: flex; flex-direction: column; gap: 8px; }
+.memory-panel { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
 .mem-card {
   background: var(--bg-surface); border-radius: var(--radius-md);
   padding: 10px; display: flex; flex-direction: column; gap: 4px;

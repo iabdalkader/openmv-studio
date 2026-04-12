@@ -54,31 +54,20 @@ impl Camera {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.transport.as_ref().is_some_and(|t| t.port_alive())
+        self.transport.as_ref().is_some_and(|t| t.is_connected())
     }
 
     pub fn connect(&mut self, port: &str, baudrate: u32) -> Result<(), TransportError> {
         self.disconnect();
 
-        let mut serial = serialport::new(port, baudrate)
-            .timeout(Duration::from_secs(1))
-            .open()
-            .map_err(|e| TransportError::IoError(e.to_string()))?;
-
-        // Flush any stale data from the OS serial buffer
-        let _ = serial.clear(serialport::ClearBuffer::All);
-
-        // Give firmware time to process DTR events after port open
-        std::thread::sleep(Duration::from_millis(100));
-        let _ = serial.clear(serialport::ClearBuffer::All);
-
         self.transport = Some(Transport::new(
-            serial,
+            port,
+            baudrate,
             true,
             true,
             MIN_PAYLOAD_SIZE,
             Duration::from_secs(1),
-        ));
+        )?);
 
         self.resync()?;
         self.update_channels()?;
@@ -124,6 +113,7 @@ impl Camera {
 
     fn resync(&mut self) -> Result<(), TransportError> {
         let t = self.transport()?;
+        t.open()?;
         t.update_caps(true, true, MIN_PAYLOAD_SIZE);
         t.reset_sequence();
 
@@ -432,7 +422,8 @@ impl Camera {
 
         let poll_flags = match self.poll_status(false) {
             Ok(f) => f,
-            Err(_) => {
+            Err(e) => {
+                log::warn!("poll: poll_status failed: {}", e);
                 need_resync = true;
                 0
             }
@@ -443,7 +434,8 @@ impl Camera {
         let stdout = if !need_resync && self.ch_status(poll_flags, "stdout") {
             match self.read_stdout(false) {
                 Ok(s) => s,
-                Err(_) => {
+                Err(e) => {
+                    log::warn!("poll: read_stdout failed: {}", e);
                     need_resync = true;
                     None
                 }
@@ -466,12 +458,17 @@ impl Camera {
         };
 
         if need_resync {
+            log::warn!("poll: resyncing...");
             let _ = self.resync();
         }
 
         let connected = self.is_connected();
 
         if !connected {
+            log::warn!(
+                "poll: port not alive after resync={}, disconnecting",
+                need_resync
+            );
             self.disconnect();
         }
 

@@ -23,6 +23,7 @@ struct AppState {
     sensors: serde_json::Value,
     poll_running: Arc<AtomicBool>,
     poll_interval_ms: Arc<AtomicU64>,
+    poll_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 fn resolve_resource(app: &tauri::AppHandle, name: &str) -> std::path::PathBuf {
@@ -100,9 +101,15 @@ fn cmd_list_ports(state: State<Arc<Mutex<AppState>>>) -> Vec<String> {
 #[tauri::command]
 fn cmd_connect(port: String, state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
     log::info!("Connecting to {}", port);
-    let st = state.lock().map_err(|e| e.to_string())?;
+    let mut st = state.lock().map_err(|e| e.to_string())?;
     st.poll_running.store(false, Ordering::Relaxed);
+    let old_thread = st.poll_thread.take();
     drop(st);
+
+    // Wait for the old poll thread to finish before touching the serial port.
+    if let Some(handle) = old_thread {
+        let _ = handle.join();
+    }
 
     let mut st = state.lock().map_err(|e| e.to_string())?;
     let result = st.camera.connect(&port, 921600).map_err(|e| e.to_string());
@@ -233,6 +240,9 @@ fn cmd_start_polling(
     // Signal the old thread to stop
     st.poll_running.store(false, Ordering::Relaxed);
 
+    // Take the old thread handle so we can join it after dropping the lock.
+    let old_thread = st.poll_thread.take();
+
     // Fresh running flag for the new thread
     let running = Arc::new(AtomicBool::new(true));
     st.poll_running = running.clone();
@@ -242,9 +252,17 @@ fn cmd_start_polling(
     let state_mtx = app.state::<Arc<Mutex<AppState>>>().inner().clone();
     drop(st);
 
-    std::thread::spawn(move || {
+    // Wait for the old thread to finish so two threads never poll concurrently.
+    if let Some(handle) = old_thread {
+        let _ = handle.join();
+    }
+
+    let handle = std::thread::spawn(move || {
         poll_loop(&state_mtx, &channel, &running, &interval);
     });
+
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    st.poll_thread = Some(handle);
 
     Ok(())
 }
@@ -762,6 +780,7 @@ pub fn run() {
             sensors: serde_json::json!({}),
             poll_running: Arc::new(AtomicBool::new(false)),
             poll_interval_ms: Arc::new(AtomicU64::new(50)),
+            poll_thread: None,
         })))
         .invoke_handler(tauri::generate_handler![
             cmd_open_url,

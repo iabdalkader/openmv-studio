@@ -585,7 +585,7 @@ function showCanvas(format: number) {
 let pollChannel: Channel<ArrayBuffer> | null = null;
 
 function handlePollMessage(raw: ArrayBuffer) {
-  if (raw.byteLength < 1) {
+  if (raw.byteLength < 1 || !state.isConnected) {
     return;
   }
 
@@ -686,7 +686,13 @@ function handlePollMessage(raw: ArrayBuffer) {
 
 function startPolling() {
   pollChannel = new Channel<ArrayBuffer>();
-  pollChannel.onmessage = handlePollMessage;
+  const currentChannel = pollChannel;
+  pollChannel.onmessage = (raw) => {
+    if (pollChannel !== currentChannel) {
+      return;
+    }
+    handlePollMessage(raw);
+  };
 
   invoke("cmd_start_polling", {
     intervalMs: state.pollIntervalMs,
