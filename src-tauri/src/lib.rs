@@ -286,18 +286,16 @@ fn cmd_get_channels(
     let mut st = state.lock().map_err(|e| e.to_string())?;
     match st.camera.read_dynamic_channels() {
         Ok(channels) => {
-            if !channels.is_empty() {
-                let mut buf = Vec::with_capacity(256);
-                buf.push(channels.len() as u8);
-                buf.extend_from_slice(&[0u8; 3]);
-                for (name, data) in &channels {
-                    buf.push(name.len() as u8);
-                    buf.extend_from_slice(name.as_bytes());
-                    buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
-                    buf.extend_from_slice(data);
-                }
-                let _ = channel.send(InvokeResponseBody::Raw(buf));
+            let mut buf = Vec::with_capacity(256);
+            buf.push(channels.len() as u8);
+            buf.extend_from_slice(&[0u8; 3]);
+            for (name, data) in &channels {
+                buf.push(name.len() as u8);
+                buf.extend_from_slice(name.as_bytes());
+                buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                buf.extend_from_slice(data);
             }
+            let _ = channel.send(InvokeResponseBody::Raw(buf));
         }
         Err(e) => log::warn!("cmd_get_channels: {}", e),
     }

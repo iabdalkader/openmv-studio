@@ -39,6 +39,7 @@ pub struct Camera {
     transport: Option<Transport>,
     channels: HashMap<String, ChannelInfo>,
     max_payload: usize,
+    pub poll_flags: u32,
     pub sysinfo: Option<SystemInfo>,
     pub verinfo: Option<VersionInfo>,
 }
@@ -55,6 +56,7 @@ impl Camera {
             transport: None,
             channels: HashMap::new(),
             max_payload: 4096,
+            poll_flags: 0,
             sysinfo: None,
             verinfo: None,
         }
@@ -119,6 +121,7 @@ impl Camera {
     }
 
     fn resync(&mut self) -> Result<(), TransportError> {
+        self.poll_flags = 0;
         let t = self.transport()?;
         t.open()?;
         t.update_caps(true, true, MIN_PAYLOAD_SIZE);
@@ -350,10 +353,14 @@ impl Camera {
             self.update_channels()?;
         }
 
+        // Use cached poll_flags from last poll_status() to skip
+        // channels with no data (avoids extra serial round-trips).
         let dynamic: Vec<(String, u8)> = self
             .channels
             .iter()
-            .filter(|(_, ci)| ci.flags & CHANNEL_FLAG_DYNAMIC != 0)
+            .filter(|(_, ci)| {
+                ci.flags & CHANNEL_FLAG_DYNAMIC != 0 && self.poll_flags & (1 << ci.id) != 0
+            })
             .map(|(name, ci)| (name.clone(), ci.id))
             .collect();
 
@@ -479,6 +486,8 @@ impl Camera {
                 };
             }
         };
+
+        self.poll_flags = raw;
 
         PollFlags {
             connected: self.is_connected(),
