@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { decode as cborDecode } from "cbor-x";
+import { DataChannel } from "./channel";
 import { state } from "./state";
 import { wglCtx, wglWidth, wglHeight } from "./gl";
 import { hideWelcome } from "./welcome";
@@ -132,20 +133,55 @@ const UMA_FLAG_NAMES: [number, string][] = [
 let memHistory: Map<string, { used: number; total: number }[]> = new Map();
 let memPeak: Map<string, number> = new Map();
 let memPollTimer: number | null = null;
-let memPollInFlight = false;
 let memPollInterval = 500;
+
+const memChannel = new DataChannel();
+
+memChannel.onmessage = (raw: ArrayBuffer) => {
+  const content = document.getElementById("memory-content");
+
+  if (!content || !state.isConnected || raw.byteLength < 4) {
+    return;
+  }
+
+  const view = new DataView(raw);
+  const count = view.getUint8(0);
+  const entries: any[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const o = 4 + i * 24;
+
+    if (o + 24 > raw.byteLength) {
+      break;
+    }
+
+    const memType = view.getUint8(o) === 0 ? "gc" : "uma";
+    const flags = view.getUint16(o + 2, true);
+    const total = view.getUint32(o + 4, true);
+    const used = view.getUint32(o + 8, true);
+    const free = view.getUint32(o + 12, true);
+    const persist = view.getUint32(o + 16, true);
+    const peak = view.getUint32(o + 20, true);
+
+    entries.push({ mem_type: memType, flags, total, used, free, persist, peak });
+  }
+
+  updateMemUi(content, entries);
+};
 
 export function startMemPolling(delay = 0) {
   stopMemPolling();
 
+  const poll = () => memChannel.request("cmd_get_memory");
+
   if (delay > 0) {
     memPollTimer = window.setTimeout(() => {
-      fetchMemoryStats();
-      memPollTimer = window.setInterval(fetchMemoryStats, memPollInterval);
+      poll();
+      memPollTimer = window.setInterval(poll, memPollInterval);
     }, delay);
   } else {
-    fetchMemoryStats();
-    memPollTimer = window.setInterval(fetchMemoryStats, memPollInterval);
+    poll();
+    memPollTimer = window.setInterval(poll, memPollInterval);
   }
 }
 
@@ -154,6 +190,8 @@ export function stopMemPolling() {
     clearInterval(memPollTimer);
     memPollTimer = null;
   }
+
+  memChannel.reset();
 }
 
 export function resetMemState() {
@@ -165,36 +203,6 @@ export function resetMemState() {
   if (content) {
     content.innerHTML =
       '<div style="padding:8px;color:var(--text-muted)">Connect to view memory</div>';
-  }
-}
-
-async function fetchMemoryStats() {
-  const content = document.getElementById("memory-content");
-
-  if (!content) {
-    return;
-  }
-
-  if (!state.isConnected) {
-    content.innerHTML =
-      '<div style="padding:8px;color:var(--text-muted)">Connect to view memory</div>';
-    return;
-  }
-
-  if (memPollInFlight) {
-    return;
-  }
-
-  memPollInFlight = true;
-
-  try {
-    const entries = await invoke<any[]>("cmd_get_memory");
-    updateMemUi(content, entries);
-  } catch {
-    content.innerHTML =
-      '<div style="padding:8px;color:var(--text-muted)">Failed to read memory</div>';
-  } finally {
-    memPollInFlight = false;
   }
 }
 
@@ -471,14 +479,72 @@ const PROTO_STAT_LABELS = [
 ];
 
 let protoPollTimer: number | null = null;
-let protoPollInFlight = false;
 let protoPollInterval = 500;
 let protoBuilt = false;
 
+const statsChannel = new DataChannel();
+
+statsChannel.onmessage = (raw: ArrayBuffer) => {
+  const content = document.getElementById("proto-content");
+
+  if (!content || !state.isConnected || raw.byteLength < 36) {
+    return;
+  }
+
+  const view = new DataView(raw);
+
+  // Parse 8 x u32 stat fields
+  const stats: Record<string, number> = {};
+
+  for (let i = 0; i < PROTO_STAT_KEYS.length; i++) {
+    stats[PROTO_STAT_KEYS[i]] = view.getUint32(i * 4, true);
+  }
+
+  // Parse channel list at offset 32
+  const chCount = view.getUint8(32);
+  const channels: { name: string; id: number }[] = [];
+
+  for (let i = 0; i < chCount; i++) {
+    const o = 36 + i * 16;
+
+    if (o + 16 > raw.byteLength) {
+      break;
+    }
+
+    const id = view.getUint8(o);
+    // name is 14 bytes at o+2, null-padded
+    const nameBytes = new Uint8Array(raw, o + 2, 14);
+    let nameLen = 0;
+
+    while (nameLen < 14 && nameBytes[nameLen] !== 0) {
+      nameLen++;
+    }
+
+    const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
+
+    channels.push({ name, id });
+  }
+
+  if (!protoBuilt) {
+    buildProtoDom(content, channels);
+  }
+
+  for (const key of PROTO_STAT_KEYS) {
+    const el = document.getElementById(`proto-${key}`);
+
+    if (el) {
+      el.textContent = String(stats[key]);
+    }
+  }
+};
+
 export function startProtoPolling() {
   stopProtoPolling();
-  fetchProtoStats();
-  protoPollTimer = window.setInterval(fetchProtoStats, protoPollInterval);
+
+  const poll = () => statsChannel.request("cmd_get_stats");
+
+  poll();
+  protoPollTimer = window.setInterval(poll, protoPollInterval);
 }
 
 export function stopProtoPolling() {
@@ -486,6 +552,8 @@ export function stopProtoPolling() {
     clearInterval(protoPollTimer);
     protoPollTimer = null;
   }
+
+  statsChannel.reset();
 }
 
 export function resetProtoState() {
@@ -496,52 +564,6 @@ export function resetProtoState() {
   if (content) {
     content.innerHTML =
       '<div style="padding:8px;color:var(--text-muted)">Connect to view protocol stats</div>';
-  }
-}
-
-async function fetchProtoStats() {
-  if (!state.isConnected) {
-    return;
-  }
-
-  if (protoPollInFlight) {
-    return;
-  }
-
-  protoPollInFlight = true;
-
-  try {
-    const result = await invoke<any>("cmd_get_stats");
-    const content = document.getElementById("proto-content");
-
-    if (!content) {
-      return;
-    }
-
-    if (!protoBuilt) {
-      buildProtoDom(content, result.channels);
-    }
-
-    const s = result.stats;
-
-    for (const key of PROTO_STAT_KEYS) {
-      const el = document.getElementById(`proto-${key}`);
-
-      if (el) {
-        el.textContent = s[key];
-      }
-    }
-  } catch {
-    const content = document.getElementById("proto-content");
-
-    if (content) {
-      content.innerHTML =
-        '<div style="padding:8px;color:var(--text-muted)">Failed to read stats</div>';
-    }
-
-    protoBuilt = false;
-  } finally {
-    protoPollInFlight = false;
   }
 }
 
@@ -585,14 +607,61 @@ const CBOR_KEY_MIN = -23;  // min
 const CBOR_KEY_MAX = -24;  // max
 
 let chPollTimer: number | null = null;
-let chPollInFlight = false;
 let chPollInterval = 500;
-let chBuilt = false;
+
+
+const chChannel = new DataChannel();
+
+chChannel.onmessage = (raw: ArrayBuffer) => {
+  const content = document.getElementById("channels-content");
+
+  if (!content || !state.isConnected || raw.byteLength < 4) {
+    return;
+  }
+
+  const view = new DataView(raw);
+  const count = view.getUint8(0);
+
+  if (count === 0) {
+    content.innerHTML =
+      '<div style="padding:8px;color:var(--text-muted)">No custom channels</div>';
+
+    return;
+  }
+
+  const channels: { name: string; data: number[] }[] = [];
+  let offset = 4;
+
+  for (let i = 0; i < count; i++) {
+    if (offset >= raw.byteLength) {
+      break;
+    }
+
+    const nameLen = view.getUint8(offset);
+
+    offset += 1;
+    const name = new TextDecoder().decode(new Uint8Array(raw, offset, nameLen));
+
+    offset += nameLen;
+    const dataLen = view.getUint32(offset, true);
+
+    offset += 4;
+    const data = Array.from(new Uint8Array(raw, offset, dataLen));
+
+    offset += dataLen;
+    channels.push({ name, data });
+  }
+
+  renderChannels(content, channels);
+};
 
 export function startChannelsPolling() {
   stopChannelsPolling();
-  fetchChannelsData();
-  chPollTimer = window.setInterval(fetchChannelsData, chPollInterval);
+
+  const poll = () => chChannel.request("cmd_get_channels");
+
+  poll();
+  chPollTimer = window.setInterval(poll, chPollInterval);
 }
 
 export function stopChannelsPolling() {
@@ -600,60 +669,17 @@ export function stopChannelsPolling() {
     clearInterval(chPollTimer);
     chPollTimer = null;
   }
+
+  chChannel.reset();
 }
 
 export function resetChannelsState() {
-  chBuilt = false;
 
   const content = document.getElementById("channels-content");
 
   if (content) {
     content.innerHTML =
       '<div style="padding:8px;color:var(--text-muted)">Connect to view channels</div>';
-  }
-}
-
-async function fetchChannelsData() {
-  if (!state.isConnected) {
-    return;
-  }
-
-  if (chPollInFlight) {
-    return;
-  }
-
-  chPollInFlight = true;
-
-  try {
-    const channels = await invoke<any[]>("cmd_get_channels");
-    const content = document.getElementById("channels-content");
-
-    if (!content) {
-      return;
-    }
-
-    if (!channels || channels.length === 0) {
-      content.innerHTML =
-        '<div style="padding:8px;color:var(--text-muted)">No custom channels</div>';
-      chBuilt = false;
-      return;
-    }
-
-    renderChannels(content, channels);
-    chBuilt = true;
-  } catch (e) {
-    console.error("channels poll error:", e);
-
-    const content = document.getElementById("channels-content");
-
-    if (content) {
-      content.innerHTML =
-        '<div style="padding:8px;color:var(--text-muted)">Failed to read channels</div>';
-    }
-
-    chBuilt = false;
-  } finally {
-    chPollInFlight = false;
   }
 }
 

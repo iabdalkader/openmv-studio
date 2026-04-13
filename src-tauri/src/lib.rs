@@ -176,40 +176,132 @@ fn lookup_sensor(sensors: &serde_json::Value, chip_id: u32) -> String {
 }
 
 #[tauri::command]
-fn cmd_get_memory(state: State<Arc<Mutex<AppState>>>) -> Result<serde_json::Value, String> {
+fn cmd_get_stdout(
+    channel: Channel,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
     let mut st = state.lock().map_err(|e| e.to_string())?;
-    let entries = st.camera.memory_stats().map_err(|e| e.to_string())?;
-    serde_json::to_value(&entries).map_err(|e| e.to_string())
+    match st.camera.read_stdout(false) {
+        Ok(Some(text)) => {
+            let _ = channel.send(InvokeResponseBody::Raw(text.into_bytes()));
+        }
+        Ok(None) => {}
+        Err(e) => log::warn!("cmd_get_stdout: {}", e),
+    }
+    Ok(())
 }
 
 #[tauri::command]
-fn cmd_get_stats(state: State<Arc<Mutex<AppState>>>) -> Result<serde_json::Value, String> {
+fn cmd_get_frame(
+    channel: Channel,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
     let mut st = state.lock().map_err(|e| e.to_string())?;
-    let stats = st.camera.device_stats().map_err(|e| e.to_string())?;
-    let channels: Vec<serde_json::Value> = st.camera.get_channels()
-        .into_iter()
-        .map(|(name, id, flags)| serde_json::json!({"name": name, "id": id, "flags": flags}))
-        .collect();
-    Ok(serde_json::json!({
-        "stats": stats,
-        "channels": channels,
-    }))
+    match st.camera.read_frame() {
+        Ok(Some(f)) => {
+            let mut buf = Vec::with_capacity(16 + f.data.len());
+            buf.extend_from_slice(&f.width.to_le_bytes());
+            buf.extend_from_slice(&f.height.to_le_bytes());
+            buf.extend_from_slice(&f.format.to_le_bytes());
+            buf.extend_from_slice(&f.fps.to_le_bytes());
+            buf.extend_from_slice(&f.data);
+            let _ = channel.send(InvokeResponseBody::Raw(buf));
+        }
+        Ok(None) => {}
+        Err(e) => log::warn!("cmd_get_frame: {}", e),
+    }
+    Ok(())
 }
 
 #[tauri::command]
-fn cmd_get_channels(state: State<Arc<Mutex<AppState>>>) -> Result<serde_json::Value, String> {
+fn cmd_get_memory(
+    channel: Channel,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
     let mut st = state.lock().map_err(|e| e.to_string())?;
-    let channels = st.camera.read_dynamic_channels().map_err(|e| e.to_string())?;
-    let entries: Vec<serde_json::Value> = channels
-        .into_iter()
-        .map(|(name, data)| {
-            serde_json::json!({
-                "name": name,
-                "data": data,
-            })
-        })
-        .collect();
-    Ok(serde_json::json!(entries))
+    match st.camera.memory_stats() {
+        Ok(entries) => {
+            let mut buf = Vec::with_capacity(4 + entries.len() * 24);
+            buf.push(entries.len() as u8);
+            buf.extend_from_slice(&[0u8; 3]);
+            for e in &entries {
+                let mem_type: u8 = if e.mem_type == "gc" { 0 } else { 1 };
+                buf.push(mem_type);
+                buf.push(0);
+                buf.extend_from_slice(&e.flags.to_le_bytes());
+                buf.extend_from_slice(&e.total.to_le_bytes());
+                buf.extend_from_slice(&e.used.to_le_bytes());
+                buf.extend_from_slice(&e.free.to_le_bytes());
+                buf.extend_from_slice(&e.persist.to_le_bytes());
+                buf.extend_from_slice(&e.peak.to_le_bytes());
+            }
+            let _ = channel.send(InvokeResponseBody::Raw(buf));
+        }
+        Err(e) => log::warn!("cmd_get_memory: {}", e),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn cmd_get_stats(
+    channel: Channel,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    match st.camera.device_stats() {
+        Ok(stats) => {
+            let channels_info = st.camera.get_channels();
+            let mut buf = Vec::with_capacity(36 + channels_info.len() * 16);
+            for val in [
+                stats.sent, stats.received, stats.checksum, stats.sequence,
+                stats.retransmit, stats.transport, stats.sent_events,
+                stats.max_ack_queue_depth,
+            ] {
+                buf.extend_from_slice(&val.to_le_bytes());
+            }
+            buf.push(channels_info.len() as u8);
+            buf.extend_from_slice(&[0u8; 3]);
+            for (name, id, flags) in &channels_info {
+                buf.push(*id);
+                buf.push(*flags);
+                let name_bytes = name.as_bytes();
+                let len = name_bytes.len().min(14);
+                buf.extend_from_slice(&name_bytes[..len]);
+                for _ in len..14 {
+                    buf.push(0);
+                }
+            }
+            let _ = channel.send(InvokeResponseBody::Raw(buf));
+        }
+        Err(e) => log::warn!("cmd_get_stats: {}", e),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn cmd_get_channels(
+    channel: Channel,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    match st.camera.read_dynamic_channels() {
+        Ok(channels) => {
+            if !channels.is_empty() {
+                let mut buf = Vec::with_capacity(256);
+                buf.push(channels.len() as u8);
+                buf.extend_from_slice(&[0u8; 3]);
+                for (name, data) in &channels {
+                    buf.push(name.len() as u8);
+                    buf.extend_from_slice(name.as_bytes());
+                    buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                    buf.extend_from_slice(data);
+                }
+                let _ = channel.send(InvokeResponseBody::Raw(buf));
+            }
+        }
+        Err(e) => log::warn!("cmd_get_channels: {}", e),
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -240,9 +332,7 @@ fn cmd_enable_streaming(enable: bool, raw: bool, state: State<Arc<Mutex<AppState
         .map_err(|e| e.to_string())
 }
 
-// Channel message format (single binary message per poll iteration):
-// [flags:u8] [stdout_len:u32] [stdout_bytes] [width:u32] [height:u32] [format:u32] [pixel_data]
-// If no frame: width and height are both 0, no format or pixel_data follows.
+// Poll channel message format: [connected:u8] [script_running:u8] [has_stdout:u8] [has_frame:u8]
 
 #[tauri::command]
 fn cmd_start_polling(
@@ -292,44 +382,23 @@ fn poll_loop(
     while running.load(Ordering::Relaxed) {
         let sleep_ms = interval.load(Ordering::Relaxed);
 
-        // Single lock: poll() does poll_status + stdout + read_frame with
-        // proper resync error recovery, then we drop the lock before sending.
-        let poll_result = {
+        let flags = {
             let mut st = match state.lock() {
                 Ok(st) => st,
                 Err(_) => break,
             };
-            st.camera.poll()
+            st.camera.poll_status()
         };
 
-        // Build single binary message:
-        // [flags:u8] [stdout_len:u32] [stdout] [w:u32] [h:u32] [fmt:u32] [fps:f32] [pixels]
-        let stdout_bytes = poll_result.stdout.unwrap_or_default().into_bytes();
-        let flags = (poll_result.script_running as u8)
-            | ((poll_result.connected as u8) << 1);
+        let msg = vec![
+            flags.connected as u8,
+            flags.script_running as u8,
+            flags.has_stdout as u8,
+            flags.has_frame as u8,
+        ];
+        let _ = channel.send(InvokeResponseBody::Raw(msg));
 
-        let frame_size = poll_result.frame.as_ref()
-            .map(|f| 16 + f.data.len()).unwrap_or(8);
-        let mut buf = Vec::with_capacity(5 + stdout_bytes.len() + frame_size);
-
-        buf.push(flags);
-        buf.extend_from_slice(&(stdout_bytes.len() as u32).to_le_bytes());
-        buf.extend_from_slice(&stdout_bytes);
-
-        if let Some(f) = poll_result.frame {
-            buf.extend_from_slice(&f.width.to_le_bytes());
-            buf.extend_from_slice(&f.height.to_le_bytes());
-            buf.extend_from_slice(&f.format.to_le_bytes());
-            buf.extend_from_slice(&f.fps.to_le_bytes());
-            buf.extend_from_slice(&f.data);
-        } else {
-            buf.extend_from_slice(&0u32.to_le_bytes());
-            buf.extend_from_slice(&0u32.to_le_bytes());
-        }
-
-        let _ = channel.send(InvokeResponseBody::Raw(buf));
-
-        if !poll_result.connected {
+        if !flags.connected {
             break;
         }
 
@@ -805,6 +874,8 @@ pub fn run() {
             cmd_disconnect,
             cmd_get_version,
             cmd_get_sysinfo,
+            cmd_get_stdout,
+            cmd_get_frame,
             cmd_get_memory,
             cmd_get_stats,
             cmd_get_channels,

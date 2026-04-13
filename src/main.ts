@@ -3,6 +3,7 @@
 
 import * as monaco from "monaco-editor";
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { DataChannel } from "./channel";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -584,29 +585,87 @@ function showCanvas(format: number) {
   updateHistogram(format, frameBuf);
 }
 
-// --- Channel callback ---
-// Rust pushes one binary message per poll iteration.
-// Format: [flags:u8] [stdout_len:u32] [stdout] [w:u32] [h:u32] [fmt:u32] [pixels]
-// If no frame: w=0 h=0, no fmt/pixels.
+// --- Channel callbacks ---
+// Poll channel: backend pushes [connected:u8][running:u8][has_stdout:u8][has_frame:u8]
+// Data channels: backend pushes raw binary in response to invoke requests.
 
-// Created fresh on each startPolling() call so stale messages from a
-// previous poll thread (e.g. a late connected=false after disconnect)
-// are silently dropped instead of tearing down a new connection.
 let pollChannel: Channel<ArrayBuffer> | null = null;
+const stdoutChannel = new DataChannel();
+const frameChannel = new DataChannel();
 
-function handlePollMessage(raw: ArrayBuffer) {
-  if (raw.byteLength < 1 || !state.isConnected) {
+stdoutChannel.onmessage = (raw: ArrayBuffer) => {
+  if (!state.isConnected || raw.byteLength === 0) {
+    return;
+  }
+
+  const text = new TextDecoder().decode(raw);
+  let hasException = false;
+  const errorLines: string[] = [];
+
+  for (const line of text.split("\n")) {
+    if (line.length > 0) {
+      const isError =
+        /^(Traceback|  File |.*Error:|.*Exception:|.*Interrupt:|MPY:)/.test(line);
+
+      termLog(line, isError ? "error-line" : "fps-line");
+
+      if (isError) {
+        hasException = true;
+        errorLines.push(line);
+      }
+    }
+  }
+
+  if (hasException && !/KeyboardInterrupt/.test(errorLines.join("\n"))) {
+    showException(errorLines.join("\n"));
+  }
+};
+
+frameChannel.onmessage = (raw: ArrayBuffer) => {
+  if (!state.isConnected || raw.byteLength < 16) {
     return;
   }
 
   const view = new DataView(raw);
-  let pos = 0;
+  const width = view.getUint32(0, true);
+  const height = view.getUint32(4, true);
+  const format = view.getUint32(8, true);
+  const fps = view.getFloat32(12, true);
+  const dataLen = raw.byteLength - 16;
 
-  const flags = view.getUint8(pos);
-  pos += 1;
+  fbResolution.textContent = `${width}x${height}`;
+  fbFormat.textContent =
+    format === 0x06060000
+      ? "JPEG"
+      : format === 0x0c030002
+        ? "RGB565"
+        : format === 0x08020001
+          ? "GRAY"
+          : `0x${format.toString(16).toUpperCase()}`;
 
-  const running = (flags & 1) !== 0;
-  const connected = (flags & 2) !== 0;
+  if (fps > 0) {
+    fbFps.textContent = fps.toFixed(1);
+  }
+
+  if (dataLen > frameBuf.byteLength) {
+    frameBuf = new ArrayBuffer(dataLen);
+  }
+
+  new Uint8Array(frameBuf, 0, dataLen).set(new Uint8Array(raw, 16, dataLen));
+  pendingFrame = { format, width, height, dataLen };
+  scheduleRender();
+};
+
+function handlePollFlags(raw: ArrayBuffer) {
+  if (raw.byteLength < 4 || !state.isConnected) {
+    return;
+  }
+
+  const view = new DataView(raw);
+  const connected = view.getUint8(0) !== 0;
+  const running = view.getUint8(1) !== 0;
+  const hasStdout = view.getUint8(2) !== 0;
+  const hasFrame = view.getUint8(3) !== 0;
 
   if (!connected) {
     doDisconnect();
@@ -617,80 +676,14 @@ function handlePollMessage(raw: ArrayBuffer) {
     setScriptRunning(running);
   }
 
-  // Stdout
-  const stdoutLen = view.getUint32(pos, true);
-  pos += 4;
-
-  if (stdoutLen > 0) {
-    const text = new TextDecoder().decode(new Uint8Array(raw, pos, stdoutLen));
-    let hasException = false;
-    const errorLines: string[] = [];
-
-    for (const line of text.split("\n")) {
-      if (line.length > 0) {
-        const isError =
-          /^(Traceback|  File |.*Error:|.*Exception:|.*Interrupt:|MPY:)/.test(line);
-
-        termLog(line, isError ? "error-line" : "fps-line");
-
-        if (isError) {
-          hasException = true;
-          errorLines.push(line);
-        }
-      }
-    }
-
-    if (hasException && !/KeyboardInterrupt/.test(errorLines.join("\n"))) {
-      showException(errorLines.join("\n"));
-    }
+  if (hasStdout) {
+    stdoutChannel.request("cmd_get_stdout");
   }
 
-  pos += stdoutLen;
-
-  // Frame
-  if (pos + 8 > view.byteLength) {
-    return;
+  if (hasFrame) {
+    frameChannel.request("cmd_get_frame");
   }
-
-  const width = view.getUint32(pos, true);
-  pos += 4;
-
-  const height = view.getUint32(pos, true);
-  pos += 4;
-
-  if (width > 0 && height > 0) {
-    const format = view.getUint32(pos, true);
-    pos += 4;
-
-    const fps = view.getFloat32(pos, true);
-    pos += 4;
-
-    const dataLen = raw.byteLength - pos;
-
-    fbResolution.textContent = `${width}x${height}`;
-    fbFormat.textContent =
-      format === 0x06060000
-        ? "JPEG"
-        : format === 0x0c030002
-          ? "RGB565"
-          : format === 0x08020001
-            ? "GRAY"
-            : `0x${format.toString(16).toUpperCase()}`;
-
-    if (fps > 0) {
-      const fpsStr = fps.toFixed(1);
-      fbFps.textContent = fpsStr;
-    }
-
-    if (dataLen > frameBuf.byteLength) {
-      frameBuf = new ArrayBuffer(dataLen);
-    }
-
-    new Uint8Array(frameBuf, 0, dataLen).set(new Uint8Array(raw, pos, dataLen));
-    pendingFrame = { format, width, height, dataLen };
-    scheduleRender();
-  }
-};
+}
 
 // --- Polling lifecycle ---
 
@@ -701,7 +694,7 @@ function startPolling() {
     if (pollChannel !== currentChannel) {
       return;
     }
-    handlePollMessage(raw);
+    handlePollFlags(raw);
   };
 
   invoke("cmd_start_polling", {
@@ -724,6 +717,8 @@ function startPolling() {
 
 function stopPolling() {
   pollChannel = null;
+  stdoutChannel.reset();
+  frameChannel.reset();
 
   invoke("cmd_stop_polling");
 

@@ -21,11 +21,11 @@ pub struct FrameInfo {
     pub data: Vec<u8>,
 }
 
-pub struct PollResult {
-    pub stdout: Option<String>,
-    pub frame: Option<FrameInfo>,
-    pub script_running: bool,
+pub struct PollFlags {
     pub connected: bool,
+    pub script_running: bool,
+    pub has_stdout: bool,
+    pub has_frame: bool,
 }
 
 /// Channel info: (id, flags)
@@ -463,73 +463,28 @@ impl Camera {
             .map_or(false, |ci| poll_flags & (1 << ci.id) != 0)
     }
 
-    pub fn poll(&mut self) -> PollResult {
-        let mut need_resync = false;
-
-        let poll_flags = match self.poll_status(false) {
-            Ok(f) => f,
+    pub fn poll_status(&mut self) -> PollFlags {
+        let raw = match self.cmd(Opcode::ChannelPoll, 0, None, false) {
+            Ok(Some(p)) if p.len() >= 4 => {
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]])
+            }
+            Ok(_) => 0,
             Err(e) => {
-                log::warn!("poll: poll_status failed: {}", e);
-                need_resync = true;
-                0
+                log::warn!("poll_status failed: {}", e);
+                return PollFlags {
+                    connected: self.is_connected(),
+                    script_running: false,
+                    has_stdout: false,
+                    has_frame: false,
+                };
             }
         };
 
-        let script_running = self.ch_status(poll_flags, "stdin");
-
-        let stdout = if !need_resync && self.ch_status(poll_flags, "stdout") {
-            match self.read_stdout(false) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::warn!("poll: read_stdout failed: {}", e);
-                    need_resync = true;
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        let frame = if !need_resync && self.ch_status(poll_flags, "stream") {
-            match self.read_frame() {
-                Ok(f) => f,
-                Err(e) => {
-                    log::warn!("read_frame: {}", e);
-                    need_resync = true;
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        if need_resync {
-            log::warn!("poll: resyncing...");
-            let _ = self.resync();
+        PollFlags {
+            connected: self.is_connected(),
+            script_running: self.ch_status(raw, "stdin"),
+            has_stdout: self.ch_status(raw, "stdout"),
+            has_frame: self.ch_status(raw, "stream"),
         }
-
-        let connected = self.is_connected();
-
-        if !connected {
-            log::warn!(
-                "poll: port not alive after resync={}, disconnecting",
-                need_resync
-            );
-            self.disconnect();
-        }
-
-        PollResult {
-            stdout,
-            frame,
-            script_running,
-            connected,
-        }
-    }
-
-    fn poll_status(&mut self, resync: bool) -> Result<u32, TransportError> {
-        let p = self
-            .cmd(Opcode::ChannelPoll, 0, None, resync)?
-            .ok_or(TransportError::Timeout)?;
-        Ok(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
     }
 }
