@@ -120,7 +120,7 @@ impl Camera {
         }
     }
 
-    fn resync(&mut self) -> Result<(), TransportError> {
+    pub fn resync(&mut self) -> Result<(), TransportError> {
         self.poll_flags = 0;
         let t = self.transport()?;
         t.open()?;
@@ -477,7 +477,14 @@ impl Camera {
             }
             Ok(_) => 0,
             Err(e) => {
-                log::warn!("poll_status failed: {}", e);
+                log::warn!("poll_status failed: {}, resyncing", e);
+                let _ = self.resync();
+
+                if !self.is_connected() {
+                    log::warn!("poll_status: not connected after resync, disconnecting");
+                    self.disconnect();
+                }
+
                 return PollFlags {
                     connected: self.is_connected(),
                     script_running: false,

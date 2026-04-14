@@ -150,9 +150,15 @@ impl Transport {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.serial
-            .as_ref()
-            .is_some_and(|s| s.bytes_to_read().is_ok())
+        self.serial.as_ref().is_some_and(|s| {
+            match s.bytes_to_read() {
+                Ok(_) => true,
+                Err(e) => {
+                    log::warn!("is_connected: bytes_to_read failed: {}", e);
+                    false
+                }
+            }
+        })
     }
 
     pub fn reset_sequence(&mut self) {
@@ -267,11 +273,17 @@ impl Transport {
                                 self.buf.extend_from_slice(&self.read_buf[..n]);
                             }
                             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
-                            Err(e) => return Err(TransportError::IoError(e.to_string())),
+                            Err(e) => {
+                                log::warn!("recv_packet: serial read failed: {}", e);
+                                return Err(TransportError::IoError(e.to_string()));
+                            }
                         }
                     }
                     Ok(_) => break,
-                    Err(e) => return Err(TransportError::IoError(e.to_string())),
+                    Err(e) => {
+                        log::warn!("recv_packet: bytes_to_read failed: {}", e);
+                        return Err(TransportError::IoError(e.to_string()));
+                    }
                 }
             }
 

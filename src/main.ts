@@ -347,6 +347,7 @@ btnFbDisable.addEventListener("click", async () => {
 
   btnFbDisable.innerHTML = enabled ? ICON_EYE_OPEN : ICON_EYE_CLOSED;
   btnFbDisable.title = enabled ? "Disable streaming" : "Enable streaming";
+  updateFbPlaceholder();
 
   if (state.isConnected) {
     await sendStreaming();
@@ -520,6 +521,30 @@ const fbFps = document.getElementById("fb-fps")!;
 
 wglInit(fbCanvas);
 
+const ICON_NO_IMAGE =
+  '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+const ICON_FB_DISABLED =
+  '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/><line x1="2" y1="2" x2="22" y2="22" stroke-width="2"/></svg>';
+
+function updateFbPlaceholder() {
+  const streaming = btnFbDisable.classList.contains("active");
+  const svg = fbNoImage.querySelector("svg");
+  const span = fbNoImage.querySelector("span");
+
+  if (svg) {
+    svg.outerHTML = streaming ? ICON_NO_IMAGE : ICON_FB_DISABLED;
+  }
+
+  if (span) {
+    span.textContent = streaming ? "No image data" : "Streaming disabled";
+  }
+
+  if (!streaming) {
+    fbCanvas.style.display = "none";
+    fbNoImage.style.display = "";
+    state.canvasVisible = false;
+  }
+}
 
 // Reusable frame buffer -- grows as needed, never shrinks
 let frameBuf = new ArrayBuffer(0);
@@ -581,6 +606,10 @@ function scheduleRender() {
 }
 
 function showCanvas(format: number) {
+  if (!btnFbDisable.classList.contains("active")) {
+    return;
+  }
+
   if (!state.canvasVisible) {
     fbCanvas.style.display = "block";
     fbCanvas.style.maxWidth = "100%";

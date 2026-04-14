@@ -186,7 +186,10 @@ fn cmd_get_stdout(
             let _ = channel.send(InvokeResponseBody::Raw(text.into_bytes()));
         }
         Ok(None) => {}
-        Err(e) => log::warn!("cmd_get_stdout: {}", e),
+        Err(e) => {
+            log::warn!("cmd_get_stdout: {}, resyncing", e);
+            let _ = st.camera.resync();
+        }
     }
     Ok(())
 }
@@ -208,7 +211,10 @@ fn cmd_get_frame(
             let _ = channel.send(InvokeResponseBody::Raw(buf));
         }
         Ok(None) => {}
-        Err(e) => log::warn!("cmd_get_frame: {}", e),
+        Err(e) => {
+            log::warn!("cmd_get_frame: {}, resyncing", e);
+            let _ = st.camera.resync();
+        }
     }
     Ok(())
 }
@@ -237,7 +243,10 @@ fn cmd_get_memory(
             }
             let _ = channel.send(InvokeResponseBody::Raw(buf));
         }
-        Err(e) => log::warn!("cmd_get_memory: {}", e),
+        Err(e) => {
+            log::warn!("cmd_get_memory: {}, resyncing", e);
+            let _ = st.camera.resync();
+        }
     }
     Ok(())
 }
@@ -273,7 +282,10 @@ fn cmd_get_stats(
             }
             let _ = channel.send(InvokeResponseBody::Raw(buf));
         }
-        Err(e) => log::warn!("cmd_get_stats: {}", e),
+        Err(e) => {
+            log::warn!("cmd_get_stats: {}, resyncing", e);
+            let _ = st.camera.resync();
+        }
     }
     Ok(())
 }
@@ -297,7 +309,10 @@ fn cmd_get_channels(
             }
             let _ = channel.send(InvokeResponseBody::Raw(buf));
         }
-        Err(e) => log::warn!("cmd_get_channels: {}", e),
+        Err(e) => {
+            log::warn!("cmd_get_channels: {}, resyncing", e);
+            let _ = st.camera.resync();
+        }
     }
     Ok(())
 }

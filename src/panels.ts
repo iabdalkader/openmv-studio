@@ -35,19 +35,25 @@ export function initPanels() {
       }
 
       if (tool === "memory") {
-        startMemPolling();
+        if (state.isConnected) {
+          startMemPolling();
+        }
       } else {
         stopMemPolling();
       }
 
       if (tool === "protocol") {
-        startProtoPolling();
+        if (state.isConnected) {
+          startProtoPolling();
+        }
       } else {
         stopProtoPolling();
       }
 
       if (tool === "channels") {
-        startChannelsPolling();
+        if (state.isConnected) {
+          startChannelsPolling();
+        }
       } else {
         stopChannelsPolling();
       }
