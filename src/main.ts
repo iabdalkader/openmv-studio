@@ -1,9 +1,8 @@
-// Entry point. Creates the Monaco editor, manages connection/polling,
-// parses the binary channel stream, and wires all modules together.
+// Entry point. Creates the Monaco editor, manages connection,
+// dispatches worker channel messages, and wires all modules together.
 
 import * as monaco from "monaco-editor";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { DataChannel } from "./channel";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -56,6 +55,9 @@ import {
   stopChannelsPolling,
   resetChannelsState,
   isChannelsTabActive,
+  handleMemoryData,
+  handleStatsData,
+  handleChannelsData,
 } from "./panels";
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
 
@@ -407,7 +409,15 @@ async function doConnect() {
       port = ports[0];
     }
 
-    await invoke("cmd_connect", { port });
+    // Create worker channel for all backend data
+    workerChannel = new Channel<ArrayBuffer>();
+    workerChannel.onmessage = handleWorkerMessage;
+
+    await invoke("cmd_connect", {
+      port,
+      channel: workerChannel,
+      pollIntervalMs: state.pollIntervalMs,
+    });
 
     const sysinfo = await invoke<any>("cmd_get_sysinfo");
     const version = await invoke<any>("cmd_get_version");
@@ -427,7 +437,17 @@ async function doConnect() {
       await sendStreaming();
     } catch {}
 
-    startPolling();
+    if (isMemTabActive()) {
+      startMemPolling(200);
+    }
+
+    if (isProtoTabActive()) {
+      startProtoPolling();
+    }
+
+    if (isChannelsTabActive()) {
+      startChannelsPolling();
+    }
 
     resetExamples();
     loadExamples();
@@ -443,7 +463,6 @@ async function doDisconnect() {
     return;
   }
 
-  stopPolling();
   stopMemPolling();
   stopProtoPolling();
   stopChannelsPolling();
@@ -451,8 +470,14 @@ async function doDisconnect() {
   resetProtoState();
   resetChannelsState();
 
-  try { await invoke("cmd_stop_script"); } catch {}
-  try { await invoke("cmd_disconnect"); } catch {}
+  try {
+    await invoke("cmd_stop_script");
+  } catch {}
+  try {
+    await invoke("cmd_disconnect");
+  } catch {}
+
+  workerChannel = null;
 
   state.connectedBoard = null;
   state.connectedSensor = null;
@@ -468,6 +493,12 @@ async function doDisconnect() {
     clearExamplesTree();
   } else {
     loadExamples();
+  }
+
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+    pendingFrame = null;
   }
 }
 
@@ -491,6 +522,7 @@ async function runScript() {
   try {
     await sendStreaming();
     await invoke("cmd_run_script", { script: editor.getValue() });
+    setScriptRunning(true);
   } catch (e: any) {
     console.error("Run failed:", e);
   }
@@ -503,6 +535,7 @@ async function stopScript() {
 
   try {
     await invoke("cmd_stop_script");
+    setScriptRunning(false);
   } catch (e: any) {
     console.error("Stop failed:", e);
   }
@@ -559,7 +592,7 @@ function updateFbPlaceholder() {
 // Reusable frame buffer -- grows as needed, never shrinks
 let frameBuf = new ArrayBuffer(0);
 
-// Pending frame for rAF-based rendering. The poll channel stashes the
+// Pending frame for rAF-based rendering. The worker channel stashes the
 // latest frame here; requestAnimationFrame draws it. This decouples
 // serial I/O from rendering so the main thread stays responsive.
 let pendingFrame: {
@@ -632,16 +665,51 @@ function showCanvas(format: number) {
   updateHistogram(format, frameBuf);
 }
 
-// --- Channel callbacks ---
-// Poll channel: backend pushes [connected:u8][running:u8][has_stdout:u8][has_frame:u8]
-// Data channels: backend pushes raw binary in response to invoke requests.
+// --- Worker channel ---
+// Single binary channel from backend. Messages prefixed with a tag byte:
+// 0x01=Frame, 0x02=Stdout, 0x03=Memory, 0x04=Stats, 0x05=Channels,
+// 0x10=SoftReboot, 0x12=Disconnected, 0x13=Error
 
-let pollChannel: Channel<ArrayBuffer> | null = null;
-const stdoutChannel = new DataChannel();
-const frameChannel = new DataChannel();
+let workerChannel: Channel<ArrayBuffer> | null = null;
 
-stdoutChannel.onmessage = (raw: ArrayBuffer) => {
-  if (!state.isConnected || raw.byteLength === 0) {
+function handleWorkerMessage(raw: ArrayBuffer) {
+  if (raw.byteLength < 1 || !state.isConnected) {
+    return;
+  }
+
+  const tag = new Uint8Array(raw)[0];
+  const payload = raw.slice(1);
+
+  switch (tag) {
+    case 0x01:
+      handleFrame(payload);
+      break;
+    case 0x02:
+      handleStdout(payload);
+      break;
+    case 0x03:
+      handleMemoryData(payload);
+      break;
+    case 0x04:
+      handleStatsData(payload);
+      break;
+    case 0x05:
+      handleChannelsData(payload);
+      break;
+    case 0x10:
+      handleSoftReboot();
+      break;
+    case 0x12:
+      handleDisconnected();
+      break;
+    case 0x13:
+      handleError(payload);
+      break;
+  }
+}
+
+function handleStdout(raw: ArrayBuffer) {
+  if (raw.byteLength === 0) {
     return;
   }
 
@@ -666,10 +734,10 @@ stdoutChannel.onmessage = (raw: ArrayBuffer) => {
   if (hasException && !/KeyboardInterrupt/.test(errorLines.join("\n"))) {
     showException(errorLines.join("\n"));
   }
-};
+}
 
-frameChannel.onmessage = (raw: ArrayBuffer) => {
-  if (!state.isConnected || raw.byteLength < 16) {
+function handleFrame(raw: ArrayBuffer) {
+  if (raw.byteLength < 16) {
     return;
   }
 
@@ -701,78 +769,21 @@ frameChannel.onmessage = (raw: ArrayBuffer) => {
   new Uint8Array(frameBuf, 0, dataLen).set(new Uint8Array(raw, 16, dataLen));
   pendingFrame = { format, width, height, dataLen };
   scheduleRender();
-};
-
-function handlePollFlags(raw: ArrayBuffer) {
-  if (raw.byteLength < 4 || !state.isConnected) {
-    return;
-  }
-
-  const view = new DataView(raw);
-  const connected = view.getUint8(0) !== 0;
-  const running = view.getUint8(1) !== 0;
-  const hasStdout = view.getUint8(2) !== 0;
-  const hasFrame = view.getUint8(3) !== 0;
-
-  if (!connected) {
-    doDisconnect();
-    return;
-  }
-
-  if (state.scriptRunning !== running) {
-    setScriptRunning(running);
-  }
-
-  if (hasStdout) {
-    stdoutChannel.request("cmd_get_stdout");
-  }
-
-  if (hasFrame) {
-    frameChannel.request("cmd_get_frame");
-  }
 }
 
-// --- Polling lifecycle ---
-
-function startPolling() {
-  pollChannel = new Channel<ArrayBuffer>();
-  const currentChannel = pollChannel;
-  pollChannel.onmessage = (raw) => {
-    if (pollChannel !== currentChannel) {
-      return;
-    }
-    handlePollFlags(raw);
-  };
-
-  invoke("cmd_start_polling", {
-    intervalMs: state.pollIntervalMs,
-    channel: pollChannel,
-  });
-
-  if (isMemTabActive()) {
-    startMemPolling(200);
-  }
-
-  if (isProtoTabActive()) {
-    startProtoPolling();
-  }
-
-  if (isChannelsTabActive()) {
-    startChannelsPolling();
-  }
+function handleSoftReboot() {
+  setScriptRunning(false);
 }
 
-function stopPolling() {
-  pollChannel = null;
-  stdoutChannel.reset();
-  frameChannel.reset();
+function handleDisconnected() {
+  doDisconnect();
+}
 
-  invoke("cmd_stop_polling");
+function handleError(raw: ArrayBuffer) {
+  if (raw.byteLength > 0) {
+    const msg = new TextDecoder().decode(raw);
 
-  if (rafId) {
-    cancelAnimationFrame(rafId);
-    rafId = 0;
-    pendingFrame = null;
+    console.error("Worker error:", msg);
   }
 }
 

@@ -3,7 +3,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { decode as cborDecode } from "cbor-x";
-import { DataChannel } from "./channel";
 import { state } from "./state";
 import { wglCtx, wglWidth, wglHeight } from "./gl";
 import { hideWelcome } from "./welcome";
@@ -141,9 +140,7 @@ let memPeak: Map<string, number> = new Map();
 let memPollTimer: number | null = null;
 let memPollInterval = 500;
 
-const memChannel = new DataChannel();
-
-memChannel.onmessage = (raw: ArrayBuffer) => {
+export function handleMemoryData(raw: ArrayBuffer) {
   const content = document.getElementById("memory-content");
 
   if (!content || !state.isConnected || raw.byteLength < 4) {
@@ -173,12 +170,12 @@ memChannel.onmessage = (raw: ArrayBuffer) => {
   }
 
   updateMemUi(content, entries);
-};
+}
 
 export function startMemPolling(delay = 0) {
   stopMemPolling();
 
-  const poll = () => memChannel.request("cmd_get_memory");
+  const poll = () => invoke("cmd_get_memory");
 
   if (delay > 0) {
     memPollTimer = window.setTimeout(() => {
@@ -196,8 +193,6 @@ export function stopMemPolling() {
     clearInterval(memPollTimer);
     memPollTimer = null;
   }
-
-  memChannel.reset();
 }
 
 export function resetMemGraphCache() {
@@ -498,9 +493,7 @@ let protoPollTimer: number | null = null;
 let protoPollInterval = 500;
 let protoBuilt = false;
 
-const statsChannel = new DataChannel();
-
-statsChannel.onmessage = (raw: ArrayBuffer) => {
+export function handleStatsData(raw: ArrayBuffer) {
   const content = document.getElementById("proto-content");
 
   if (!content || !state.isConnected || raw.byteLength < 36) {
@@ -519,6 +512,7 @@ statsChannel.onmessage = (raw: ArrayBuffer) => {
   // Parse channel list at offset 32
   const chCount = view.getUint8(32);
   const channels: { name: string; id: number }[] = [];
+  const dynamic: { name: string; id: number }[] = [];
 
   for (let i = 0; i < chCount; i++) {
     const o = 36 + i * 16;
@@ -528,6 +522,7 @@ statsChannel.onmessage = (raw: ArrayBuffer) => {
     }
 
     const id = view.getUint8(o);
+    const flags = view.getUint8(o + 1);
     // name is 14 bytes at o+2, null-padded
     const nameBytes = new Uint8Array(raw, o + 2, 14);
     let nameLen = 0;
@@ -539,7 +534,13 @@ statsChannel.onmessage = (raw: ArrayBuffer) => {
     const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
 
     channels.push({ name, id });
+
+    if (flags & 0x20) {
+      dynamic.push({ name, id });
+    }
   }
+
+  dynamicChannels = dynamic;
 
   if (!protoBuilt) {
     buildProtoDom(content, channels);
@@ -552,12 +553,12 @@ statsChannel.onmessage = (raw: ArrayBuffer) => {
       el.textContent = String(stats[key]);
     }
   }
-};
+}
 
 export function startProtoPolling() {
   stopProtoPolling();
 
-  const poll = () => statsChannel.request("cmd_get_stats");
+  const poll = () => invoke("cmd_get_stats");
 
   poll();
   protoPollTimer = window.setInterval(poll, protoPollInterval);
@@ -568,8 +569,6 @@ export function stopProtoPolling() {
     clearInterval(protoPollTimer);
     protoPollTimer = null;
   }
-
-  statsChannel.reset();
 }
 
 export function resetProtoState() {
@@ -624,57 +623,61 @@ const CBOR_KEY_MAX = -24;  // max
 
 let chPollTimer: number | null = null;
 let chPollInterval = 500;
+let dynamicChannels: { name: string; id: number }[] = [];
+let channelCache: Map<string, number[]> = new Map();
 
-
-const chChannel = new DataChannel();
-
-chChannel.onmessage = (raw: ArrayBuffer) => {
+export function handleChannelsData(raw: ArrayBuffer) {
   const content = document.getElementById("channels-content");
 
-  if (!content || !state.isConnected || raw.byteLength < 4) {
+  if (!content || !state.isConnected || raw.byteLength < 2) {
     return;
   }
 
+  // Single-channel format: [name_len, name, data_len, data]
   const view = new DataView(raw);
-  const count = view.getUint8(0);
+  let offset = 0;
 
-  if (count === 0) {
-    content.innerHTML =
-      '<div style="padding:8px;color:var(--text-muted)">No custom channels</div>';
+  const nameLen = view.getUint8(offset);
 
+  offset += 1;
+  const name = new TextDecoder().decode(new Uint8Array(raw, offset, nameLen));
+
+  offset += nameLen;
+
+  if (offset + 4 > raw.byteLength) {
     return;
   }
 
-  const channels: { name: string; data: number[] }[] = [];
-  let offset = 4;
+  const dataLen = view.getUint32(offset, true);
 
-  for (let i = 0; i < count; i++) {
-    if (offset >= raw.byteLength) {
-      break;
-    }
+  offset += 4;
+  const data = Array.from(new Uint8Array(raw, offset, dataLen));
 
-    const nameLen = view.getUint8(offset);
+  channelCache.set(name, data);
 
-    offset += 1;
-    const name = new TextDecoder().decode(new Uint8Array(raw, offset, nameLen));
-
-    offset += nameLen;
-    const dataLen = view.getUint32(offset, true);
-
-    offset += 4;
-    const data = Array.from(new Uint8Array(raw, offset, dataLen));
-
-    offset += dataLen;
-    channels.push({ name, data });
-  }
+  // Re-render from cache
+  const channels = Array.from(channelCache.entries()).map(([n, d]) => ({
+    name: n,
+    data: d,
+  }));
 
   renderChannels(content, channels);
-};
+}
 
 export function startChannelsPolling() {
   stopChannelsPolling();
 
-  const poll = () => chChannel.request("cmd_get_channels");
+  const poll = () => {
+    if (dynamicChannels.length === 0) {
+      // Need stats to discover dynamic channels first
+      invoke("cmd_get_stats");
+      return;
+    }
+
+    for (const ch of dynamicChannels) {
+      invoke("cmd_read_channel", { channelId: ch.id });
+    }
+  };
 
   poll();
   chPollTimer = window.setInterval(poll, chPollInterval);
@@ -685,11 +688,11 @@ export function stopChannelsPolling() {
     clearInterval(chPollTimer);
     chPollTimer = null;
   }
-
-  chChannel.reset();
 }
 
 export function resetChannelsState() {
+  dynamicChannels = [];
+  channelCache.clear();
 
   const content = document.getElementById("channels-content");
 

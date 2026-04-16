@@ -1,34 +1,57 @@
-// OpenMV Camera -- direct port of openmv-python/src/openmv/camera.py
-// Single struct owning the transport. No threads, no command queues.
+// OpenMV Camera -- worker thread driving the serial protocol.
+// Owns the transport. Runs the command loop on a dedicated thread.
 
 use std::collections::HashMap;
+use std::sync::mpsc;
 use std::time::Duration;
 
-use serde::Serialize;
+use tauri::ipc::{Channel, InvokeResponseBody};
 
 use crate::protocol::*;
-use crate::transport::{TransportError, Transport};
+use crate::transport::{Transport, TransportError};
 
 const PIXFORMAT_RGB565: u32 = 0x0C030002;
 const PIXFORMAT_GRAYSCALE: u32 = 0x08020001;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct FrameInfo {
-    pub width: u32,
-    pub height: u32,
-    pub format: u32,
-    pub fps: f32,
-    pub data: Vec<u8>,
+// Binary channel tags
+pub const TAG_FRAME: u8 = 0x01;
+pub const TAG_STDOUT: u8 = 0x02;
+pub const TAG_MEMORY: u8 = 0x03;
+pub const TAG_STATS: u8 = 0x04;
+pub const TAG_CHANNELS: u8 = 0x05;
+pub const TAG_SOFT_REBOOT: u8 = 0x10;
+pub const TAG_DISCONNECTED: u8 = 0x12;
+pub const TAG_ERROR: u8 = 0x13;
+
+#[derive(PartialEq)]
+pub enum Command {
+    RunScript(String),
+    StopScript,
+    EnableStreaming { enable: bool, raw: bool },
+    SetStreamSource(u32),
+    GetMemory,
+    GetStats,
+    ReadChannel(u8),
+    ReadStdout,
+    ReadFrame,
+    UpdateChannels,
+    Disconnect,
 }
 
-pub struct PollFlags {
-    pub connected: bool,
-    pub script_running: bool,
-    pub has_stdout: bool,
-    pub has_frame: bool,
+impl Command {
+    fn is_idempotent(&self) -> bool {
+        matches!(
+            self,
+            Command::GetMemory
+                | Command::GetStats
+                | Command::ReadChannel(_)
+                | Command::ReadStdout
+                | Command::ReadFrame
+                | Command::UpdateChannels
+        )
+    }
 }
 
-/// Channel info: (id, flags)
 #[derive(Debug, Clone)]
 struct ChannelInfo {
     id: u8,
@@ -39,7 +62,6 @@ pub struct Camera {
     transport: Option<Transport>,
     channels: HashMap<String, ChannelInfo>,
     max_payload: usize,
-    pub poll_flags: u32,
     pub sysinfo: Option<SystemInfo>,
     pub verinfo: Option<VersionInfo>,
 }
@@ -56,19 +78,17 @@ impl Camera {
             transport: None,
             channels: HashMap::new(),
             max_payload: 4096,
-            poll_flags: 0,
             sysinfo: None,
             verinfo: None,
         }
     }
 
-    pub fn is_connected(&self) -> bool {
+    fn is_connected(&self) -> bool {
         self.transport.as_ref().is_some_and(|t| t.is_connected())
     }
 
     pub fn connect(&mut self, port: &str, baudrate: u32) -> Result<(), TransportError> {
         self.disconnect();
-
         self.transport = Some(Transport::new(
             port,
             baudrate,
@@ -77,23 +97,180 @@ impl Camera {
             MIN_PAYLOAD_SIZE,
             Duration::from_secs(1),
         )?);
-
         self.resync()?;
         self.update_channels()?;
         self.cache_info();
         Ok(())
     }
 
-    pub fn disconnect(&mut self) {
+    fn disconnect(&mut self) {
         self.transport = None;
         self.channels.clear();
         self.sysinfo = None;
         self.verinfo = None;
     }
 
+    // -- Worker loop --
+
+    pub fn run(
+        &mut self,
+        rx: mpsc::Receiver<Command>,
+        tx: &Channel,
+        poll_interval: Duration,
+    ) {
+        let mut queue: Vec<Command> = Vec::new();
+
+        loop {
+            // Drain incoming commands, dedup idempotent ones
+            while let Ok(cmd) = rx.try_recv() {
+                enqueue(&mut queue, cmd);
+            }
+
+            if !queue.is_empty() {
+                let cmd = queue.remove(0);
+                if matches!(cmd, Command::Disconnect) {
+                    break;
+                }
+                let events = self.execute(cmd, tx);
+                for c in events {
+                    enqueue(&mut queue, c);
+                }
+            } else {
+                self.recv_events(poll_interval);
+                let events = self.map_events(tx);
+                for c in events {
+                    enqueue(&mut queue, c);
+                }
+            }
+
+            if !self.is_connected() {
+                let _ = tx.send(InvokeResponseBody::Raw(vec![TAG_DISCONNECTED]));
+                break;
+            }
+        }
+    }
+
+    fn execute(&mut self, cmd: Command, tx: &Channel) -> Vec<Command> {
+        let result = match cmd {
+            Command::RunScript(script) => self.exec_script(&script),
+            Command::StopScript => self.stop_script(),
+            Command::EnableStreaming { enable, raw } => self.enable_streaming(enable, raw),
+            Command::SetStreamSource(chip_id) => self.set_stream_source(chip_id),
+            Command::GetMemory => self.do_get_memory(tx),
+            Command::GetStats => self.do_get_stats(tx),
+            Command::ReadChannel(id) => self.do_read_channel(id, tx),
+            Command::ReadStdout => self.do_read_stdout(tx),
+            Command::ReadFrame => self.do_read_frame(tx),
+            Command::UpdateChannels => {
+                let _ = self.update_channels();
+                Ok(())
+            }
+            Command::Disconnect => unreachable!(),
+        };
+
+        if let Err(e) = result {
+            log::warn!("execute: {}", e);
+            let mut buf = vec![TAG_ERROR];
+            buf.extend_from_slice(e.to_string().as_bytes());
+            let _ = tx.send(InvokeResponseBody::Raw(buf));
+        }
+
+        self.map_events(tx)
+    }
+
+    fn recv_events(&mut self, timeout: Duration) {
+        let t = match self.transport.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+
+        let saved = t.get_timeout();
+        t.set_timeout(timeout);
+
+        // recv_packet buffers events internally; we just need to trigger a
+        // receive attempt so the transport has a chance to collect them.
+        match t.recv_packet() {
+            Ok(_) => {} // unexpected non-event, drop it
+            Err(TransportError::Timeout) => {}
+            Err(e) => log::warn!("recv_events: {}", e),
+        }
+
+        t.set_timeout(saved);
+    }
+
+    fn map_events(&mut self, tx: &Channel) -> Vec<Command> {
+        let events = match self.transport.as_mut() {
+            Some(t) => t.drain_events(),
+            None => vec![],
+        };
+        let mut commands = Vec::new();
+
+        for packet in events {
+            if packet.channel == 0 {
+                // System event on channel 0
+                if let Some(ref payload) = packet.payload {
+                    if payload.len() >= 2 {
+                        let event_type = u16::from_le_bytes([payload[0], payload[1]]);
+                        match event_type {
+                            0x00 => commands.push(Command::UpdateChannels),
+                            0x02 => {
+                                let _ = tx.send(InvokeResponseBody::Raw(
+                                    vec![TAG_SOFT_REBOOT],
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            } else {
+                // Data event -- map channel ID to name/flags
+                let info = self
+                    .channels
+                    .iter()
+                    .find(|(_, ci)| ci.id == packet.channel)
+                    .map(|(name, ci)| (name.clone(), ci.flags));
+
+                match info.as_ref().map(|(n, _)| n.as_str()) {
+                    Some("stdout") => commands.push(Command::ReadStdout),
+                    Some("stream") => commands.push(Command::ReadFrame),
+                    _ => {
+                        if let Some((_, flags)) = info {
+                            if flags & CHANNEL_FLAG_DYNAMIC != 0 {
+                                commands.push(Command::ReadChannel(packet.channel));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        commands
+    }
+
     // -- Protocol primitives --
+
     fn transport(&mut self) -> Result<&mut Transport, TransportError> {
         self.transport.as_mut().ok_or(TransportError::NotConnected)
+    }
+
+    /// Receive one response. Events are buffered by the transport automatically.
+    fn recv_response(&mut self) -> Result<Option<Vec<u8>>, TransportError> {
+        let packet = self.transport()?.recv_packet()?;
+        if packet.flags.contains(PacketFlags::NAK) {
+            let status = packet
+                .payload
+                .as_ref()
+                .and_then(|p| {
+                    if p.len() >= 2 {
+                        Status::from_u16(u16::from_le_bytes([p[0], p[1]]))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(Status::Failed);
+            return Err(TransportError::Nak(status));
+        }
+        Ok(packet.payload)
     }
 
     fn cmd(
@@ -105,23 +282,22 @@ impl Camera {
     ) -> Result<Option<Vec<u8>>, TransportError> {
         self.transport()?
             .send_packet(opcode, channel, PacketFlags::empty(), data)?;
-        match self.transport()?.recv_packet() {
+        match self.recv_response() {
             Ok(r) => Ok(r),
-            Err(TransportError::Checksum | TransportError::Sequence | TransportError::Timeout)
-                if resync =>
-            {
+            Err(
+                TransportError::Checksum | TransportError::Sequence | TransportError::Timeout,
+            ) if resync => {
                 log::warn!("Protocol error, resyncing...");
                 self.resync()?;
                 self.transport()?
                     .send_packet(opcode, channel, PacketFlags::empty(), data)?;
-                self.transport()?.recv_packet()
+                self.recv_response()
             }
             Err(e) => Err(e),
         }
     }
 
-    pub fn resync(&mut self) -> Result<(), TransportError> {
-        self.poll_flags = 0;
+    fn resync(&mut self) -> Result<(), TransportError> {
         let t = self.transport()?;
         t.open()?;
         t.update_caps(true, true, MIN_PAYLOAD_SIZE);
@@ -199,7 +375,8 @@ impl Camera {
         }
         if let Ok(Some(p)) = self.cmd(Opcode::SysInfo, 0, None, true) {
             if p.len() >= 76 {
-                let u = |o: usize| u32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+                let u =
+                    |o: usize| u32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
                 let usb_id = u(16);
                 let caps = u(40);
                 self.sysinfo = Some(SystemInfo {
@@ -285,15 +462,41 @@ impl Camera {
         Ok(())
     }
 
+    // -- Script and streaming --
 
-    // -- Public operations --
+    fn exec_script(&mut self, script: &str) -> Result<(), TransportError> {
+        let id = self.ch("stdin")?;
+        self.ch_ioctl(id, ioctl::STDIN_RESET, &[])?;
+        self.ch_write(id, script.as_bytes())?;
+        self.ch_ioctl(id, ioctl::STDIN_EXEC, &[])
+    }
 
-    pub fn memory_stats(&mut self) -> Result<Vec<MemEntry>, TransportError> {
+    fn stop_script(&mut self) -> Result<(), TransportError> {
+        let id = self.ch("stdin")?;
+        self.ch_ioctl(id, ioctl::STDIN_STOP, &[])
+    }
+
+    fn enable_streaming(&mut self, enable: bool, raw: bool) -> Result<(), TransportError> {
+        let id = self.ch("stream")?;
+        self.ch_ioctl(id, ioctl::STREAM_RAW_CTRL, &[raw as u32])?;
+        self.ch_ioctl(id, ioctl::STREAM_CTRL, &[enable as u32])
+    }
+
+    fn set_stream_source(&mut self, chip_id: u32) -> Result<(), TransportError> {
+        let id = self.ch("stream")?;
+        self.ch_ioctl(id, ioctl::STREAM_SOURCE, &[chip_id])
+    }
+
+    // -- Data queries --
+
+    fn memory_stats(&mut self) -> Result<Vec<MemEntry>, TransportError> {
         let p = self
             .cmd(Opcode::SysMemory, 0, None, true)?
             .ok_or(TransportError::Timeout)?;
         if p.len() < 4 {
-            return Err(TransportError::IoError("Invalid SYS_MEMORY response".into()));
+            return Err(TransportError::IoError(
+                "Invalid SYS_MEMORY response".into(),
+            ));
         }
         let count = p[0] as usize;
         let mut entries = Vec::with_capacity(count);
@@ -315,7 +518,7 @@ impl Camera {
         Ok(entries)
     }
 
-    pub fn device_stats(&mut self) -> Result<ProtoStats, TransportError> {
+    fn device_stats(&mut self) -> Result<ProtoStats, TransportError> {
         let p = self
             .cmd(Opcode::ProtoStats, 0, None, true)?
             .ok_or(TransportError::Timeout)?;
@@ -337,106 +540,54 @@ impl Camera {
         })
     }
 
-    pub fn get_channels(&self) -> Vec<(String, u8, u8)> {
+    fn get_channels(&self) -> Vec<(String, u8, u8)> {
         self.channels
             .iter()
             .map(|(k, ci)| (k.clone(), ci.id, ci.flags))
             .collect()
     }
 
-    /// Refresh channels if a CHANNEL_REGISTERED event was received,
-    /// then return data for all DYNAMIC channels.
-    pub fn read_dynamic_channels(&mut self) -> Result<Vec<(String, Vec<u8>)>, TransportError> {
-        // Check if transport received a channel registration event
-        if self.transport.as_ref().is_some_and(|t| t.pending_channel) {
-            self.transport.as_mut().unwrap().pending_channel = false;
-            self.update_channels()?;
-        }
+    // -- Worker command handlers --
 
-        // Use cached poll_flags from last poll_status() to skip
-        // channels with no data (avoids extra serial round-trips).
-        let dynamic: Vec<(String, u8)> = self
-            .channels
-            .iter()
-            .filter(|(_, ci)| {
-                ci.flags & CHANNEL_FLAG_DYNAMIC != 0 && self.poll_flags & (1 << ci.id) != 0
-            })
-            .map(|(name, ci)| (name.clone(), ci.id))
-            .collect();
-
-        let mut result = Vec::new();
-
-        for (name, id) in dynamic {
-            let size = match self.ch_size(id, true) {
-                Ok(s) if s > 0 => s,
-                _ => continue,
-            };
-
-            match self.ch_read(id, 0, size, true) {
-                Ok(data) => result.push((name, data)),
-                Err(_) => continue,
-            }
-        }
-
-        Ok(result)
-    }
-
-    pub fn exec_script(&mut self, script: &str) -> Result<(), TransportError> {
-        let id = self.ch("stdin")?;
-        self.ch_ioctl(id, ioctl::STDIN_RESET, &[])?;
-        self.ch_write(id, script.as_bytes())?;
-        self.ch_ioctl(id, ioctl::STDIN_EXEC, &[])
-    }
-
-    pub fn stop_script(&mut self) -> Result<(), TransportError> {
-        let id = self.ch("stdin")?;
-        self.ch_ioctl(id, ioctl::STDIN_STOP, &[])
-    }
-
-    pub fn enable_streaming(&mut self, enable: bool, raw: bool) -> Result<(), TransportError> {
-        let id = self.ch("stream")?;
-        self.ch_ioctl(id, ioctl::STREAM_RAW_CTRL, &[raw as u32])?;
-        self.ch_ioctl(id, ioctl::STREAM_CTRL, &[enable as u32])
-    }
-
-    pub fn set_stream_source(&mut self, chip_id: u32) -> Result<(), TransportError> {
-        let id = self.ch("stream")?;
-        self.ch_ioctl(id, ioctl::STREAM_SOURCE, &[chip_id])
-    }
-
-    pub fn read_stdout(&mut self, resync: bool) -> Result<Option<String>, TransportError> {
+    fn do_read_stdout(&mut self, tx: &Channel) -> Result<(), TransportError> {
         let id = self.ch("stdout")?;
-        let size = self.ch_size(id, resync)?;
+        let size = self.ch_size(id, true)?;
         if size == 0 {
-            return Ok(None);
+            return Ok(());
         }
-        let data = self.ch_read(id, 0, size, resync)?;
-        Ok(Some(String::from_utf8_lossy(&data).to_string()))
+        let data = self.ch_read(id, 0, size, true)?;
+        let mut buf = Vec::with_capacity(1 + data.len());
+        buf.push(TAG_STDOUT);
+        buf.extend_from_slice(&data);
+        let _ = tx.send(InvokeResponseBody::Raw(buf));
+        Ok(())
     }
 
-    pub fn read_frame(&mut self) -> Result<Option<FrameInfo>, TransportError> {
+    fn do_read_frame(&mut self, tx: &Channel) -> Result<(), TransportError> {
         let id = self.ch("stream")?;
-
         match self.cmd(Opcode::ChannelLock, id, None, false) {
             Ok(_) => {}
-            Err(TransportError::Nak(Status::Busy)) => return Ok(None),
-            Err(_) => return Ok(None),
+            Err(TransportError::Nak(Status::Busy)) => return Ok(()),
+            Err(_) => return Ok(()),
         }
-
-        let result = self.read_frame_locked(id);
+        let result = self.read_frame_locked(id, tx);
         let _ = self.cmd(Opcode::ChannelUnlock, id, None, false);
         result
     }
 
-    fn read_frame_locked(&mut self, id: u8) -> Result<Option<FrameInfo>, TransportError> {
+    fn read_frame_locked(
+        &mut self,
+        id: u8,
+        tx: &Channel,
+    ) -> Result<(), TransportError> {
         let size = self.ch_size(id, false)?;
         if size <= 24 {
-            return Ok(None);
+            return Ok(());
         }
 
         let data = self.ch_read(id, 0, size, false)?;
         if data.len() < 24 {
-            return Ok(None);
+            return Ok(());
         }
 
         let width = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
@@ -444,63 +595,115 @@ impl Camera {
         let format = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
         let offset = u32::from_le_bytes([data[16], data[17], data[18], data[19]]) as usize;
         let fps = f32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+
+        if offset >= data.len() {
+            return Ok(());
+        }
+
         let raw = &data[offset..];
         let pixels = (width as usize).saturating_mul(height as usize);
 
-        // Send raw pixel data to frontend without conversion. The frontend
-        // handles decoding/rendering images via WebGL and createImageBitmap.
         match format {
-            PIXFORMAT_RGB565 if raw.len() != pixels * 2 => return Ok(None),
-            PIXFORMAT_GRAYSCALE if raw.len() != pixels => return Ok(None),
+            PIXFORMAT_RGB565 if raw.len() != pixels * 2 => return Ok(()),
+            PIXFORMAT_GRAYSCALE if raw.len() != pixels => return Ok(()),
             _ => {}
         }
 
-        Ok(Some(FrameInfo {
-            width,
-            height,
-            format,
-            fps,
-            data: raw.to_vec(),
-        }))
+        // tag + header (w, h, format, fps) + pixel data
+        let mut buf = Vec::with_capacity(1 + 16 + raw.len());
+        buf.push(TAG_FRAME);
+        buf.extend_from_slice(&width.to_le_bytes());
+        buf.extend_from_slice(&height.to_le_bytes());
+        buf.extend_from_slice(&format.to_le_bytes());
+        buf.extend_from_slice(&fps.to_le_bytes());
+        buf.extend_from_slice(raw);
+        let _ = tx.send(InvokeResponseBody::Raw(buf));
+        Ok(())
     }
 
-    fn ch_status(&self, poll_flags: u32, name: &str) -> bool {
-        self.channels
-            .get(name)
-            .map_or(false, |ci| poll_flags & (1 << ci.id) != 0)
-    }
-
-    pub fn poll_status(&mut self) -> PollFlags {
-        let raw = match self.cmd(Opcode::ChannelPoll, 0, None, false) {
-            Ok(Some(p)) if p.len() >= 4 => {
-                u32::from_le_bytes([p[0], p[1], p[2], p[3]])
-            }
-            Ok(_) => 0,
-            Err(e) => {
-                log::warn!("poll_status failed: {}, resyncing", e);
-                let _ = self.resync();
-
-                if !self.is_connected() {
-                    log::warn!("poll_status: not connected after resync, disconnecting");
-                    self.disconnect();
-                }
-
-                return PollFlags {
-                    connected: self.is_connected(),
-                    script_running: false,
-                    has_stdout: false,
-                    has_frame: false,
-                };
-            }
-        };
-
-        self.poll_flags = raw;
-
-        PollFlags {
-            connected: self.is_connected(),
-            script_running: self.ch_status(raw, "stdin"),
-            has_stdout: self.ch_status(raw, "stdout"),
-            has_frame: self.ch_status(raw, "stream"),
+    fn do_get_memory(&mut self, tx: &Channel) -> Result<(), TransportError> {
+        let entries = self.memory_stats()?;
+        let mut buf = Vec::with_capacity(1 + 4 + entries.len() * 24);
+        buf.push(TAG_MEMORY);
+        buf.push(entries.len() as u8);
+        buf.extend_from_slice(&[0u8; 3]);
+        for e in &entries {
+            let mem_type: u8 = if e.mem_type == "gc" { 0 } else { 1 };
+            buf.push(mem_type);
+            buf.push(0);
+            buf.extend_from_slice(&e.flags.to_le_bytes());
+            buf.extend_from_slice(&e.total.to_le_bytes());
+            buf.extend_from_slice(&e.used.to_le_bytes());
+            buf.extend_from_slice(&e.free.to_le_bytes());
+            buf.extend_from_slice(&e.persist.to_le_bytes());
+            buf.extend_from_slice(&e.peak.to_le_bytes());
         }
+        let _ = tx.send(InvokeResponseBody::Raw(buf));
+        Ok(())
     }
+
+    fn do_get_stats(&mut self, tx: &Channel) -> Result<(), TransportError> {
+        let stats = self.device_stats()?;
+        let channels_info = self.get_channels();
+        let mut buf = Vec::with_capacity(1 + 36 + channels_info.len() * 16);
+        buf.push(TAG_STATS);
+        for val in [
+            stats.sent,
+            stats.received,
+            stats.checksum,
+            stats.sequence,
+            stats.retransmit,
+            stats.transport,
+            stats.sent_events,
+            stats.max_ack_queue_depth,
+        ] {
+            buf.extend_from_slice(&val.to_le_bytes());
+        }
+        buf.push(channels_info.len() as u8);
+        buf.extend_from_slice(&[0u8; 3]);
+        for (name, id, flags) in &channels_info {
+            buf.push(*id);
+            buf.push(*flags);
+            let name_bytes = name.as_bytes();
+            let len = name_bytes.len().min(14);
+            buf.extend_from_slice(&name_bytes[..len]);
+            for _ in len..14 {
+                buf.push(0);
+            }
+        }
+        let _ = tx.send(InvokeResponseBody::Raw(buf));
+        Ok(())
+    }
+
+    fn do_read_channel(&mut self, id: u8, tx: &Channel) -> Result<(), TransportError> {
+        let name = self
+            .channels
+            .iter()
+            .find(|(_, ci)| ci.id == id)
+            .map(|(n, _)| n.clone())
+            .ok_or_else(|| TransportError::IoError(format!("Channel {} not found", id)))?;
+
+        let size = self.ch_size(id, true)?;
+        if size == 0 {
+            return Ok(());
+        }
+        let data = self.ch_read(id, 0, size, true)?;
+
+        // Single-channel format: [TAG, name_len, name, data_len, data]
+        let mut buf = Vec::with_capacity(1 + 1 + name.len() + 4 + data.len());
+        buf.push(TAG_CHANNELS);
+        buf.push(name.len() as u8);
+        buf.extend_from_slice(name.as_bytes());
+        buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&data);
+        let _ = tx.send(InvokeResponseBody::Raw(buf));
+        Ok(())
+    }
+}
+
+fn enqueue(queue: &mut Vec<Command>, cmd: Command) {
+    if cmd.is_idempotent() && queue.iter().any(|c| c == &cmd) {
+        return;
+    }
+    queue.push(cmd);
 }

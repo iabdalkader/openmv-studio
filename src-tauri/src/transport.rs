@@ -86,8 +86,8 @@ pub struct Transport {
     // Read buffer for serial
     read_buf: Vec<u8>,
 
-    // Set when a CHANNEL_REGISTERED event is received
-    pub pending_channel: bool,
+    // Events collected during recv_packet
+    events: Vec<crate::protocol::Packet>,
 }
 
 impl Drop for Transport {
@@ -120,7 +120,7 @@ impl Transport {
             pos: 0,
             pbuf: vec![0u8; max_payload + HEADER_SIZE + CRC_SIZE],
             read_buf: vec![0u8; 16384],
-            pending_channel: false,
+            events: Vec::new(),
         };
         t.open()?;
         Ok(t)
@@ -249,8 +249,10 @@ impl Transport {
         Ok(())
     }
 
-    /// Receive a packet. Returns Ok(Some(payload)) for data, Ok(None) for ACK, Err for failures.
-    pub fn recv_packet(&mut self) -> Result<Option<Vec<u8>>, TransportError> {
+    /// Receive one packet. Returns the packet as-is -- caller checks flags
+    /// to determine if it is a response, event, NAK, etc.
+    /// Events are ACK'd and returned immediately without advancing sequence.
+    pub fn recv_packet(&mut self) -> Result<Packet, TransportError> {
         if !self.is_connected() {
             return Err(TransportError::NotConnected);
         }
@@ -301,9 +303,7 @@ impl Transport {
                 }
             };
 
-            // Sequence check: CRC-valid packet with wrong sequence means
-            // the device is out of sync (e.g. after soft-reset). Return
-            // error immediately instead of scanning until timeout.
+            // Sequence check
             if !self.check_seq(packet.sequence, packet.opcode, packet.flags) {
                 return Err(TransportError::Sequence);
             }
@@ -331,17 +331,9 @@ impl Transport {
                 )?;
             }
 
-            // Events -- set flags inline, reset deadline
+            // Events -- ACK'd above, buffer and keep waiting
             if packet.flags.contains(PacketFlags::EVENT) {
-                if packet.channel == 0 {
-                    let event = packet.payload.as_ref()
-                        .filter(|p| p.len() >= 2)
-                        .map(|p| u16::from_le_bytes([p[0], p[1]]));
-                    if event == Some(EventType::ChannelRegistered as u16) {
-                        self.pending_channel = true;
-                    }
-                }
-                deadline = Instant::now() + self.timeout;
+                self.events.push(packet);
                 continue;
             }
 
@@ -362,35 +354,34 @@ impl Transport {
                 continue;
             }
 
-            // Handle NAK
-            if packet.flags.contains(PacketFlags::NAK) {
-                if let Some(ref p) = packet.payload {
-                    if p.len() >= 2 {
-                        let status_val = u16::from_le_bytes([p[0], p[1]]);
-                        let status = Status::from_u16(status_val).unwrap_or(Status::Unknown);
-                        return match status {
-                            Status::Busy => Err(TransportError::Nak(Status::Busy)),
-                            Status::Failed => Err(TransportError::Nak(Status::Failed)),
-                            Status::Checksum => Err(TransportError::Checksum),
-                            Status::Sequence => Err(TransportError::Sequence),
-                            Status::Timeout => Err(TransportError::Timeout),
-                            _ => Err(TransportError::Nak(status)),
-                        };
-                    }
-                }
-                return Ok(None);
-            }
-
-            // Assemble final payload
+            // Assemble final payload from fragments
             if !fragments.is_empty() {
                 if let Some(ref p) = packet.payload {
                     fragments.extend_from_slice(p);
                 }
-                return Ok(Some(fragments));
+                return Ok(Packet {
+                    payload: Some(fragments),
+                    ..packet
+                });
             }
 
-            return Ok(packet.payload);
+            return Ok(packet);
         }
+    }
+
+    /// Set the receive timeout.
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout;
+    }
+
+    /// Get the current receive timeout.
+    pub fn get_timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// Drain buffered events collected during recv_packet.
+    pub fn drain_events(&mut self) -> Vec<crate::protocol::Packet> {
+        std::mem::take(&mut self.events)
     }
 
     /// Bytes available to read from pos.
