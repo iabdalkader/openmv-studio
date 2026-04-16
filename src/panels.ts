@@ -492,6 +492,7 @@ const PROTO_STAT_LABELS = [
 let protoPollTimer: number | null = null;
 let protoPollInterval = 500;
 let protoBuilt = false;
+let protoChannelCount = 0;
 
 export function handleStatsData(raw: ArrayBuffer) {
   const content = document.getElementById("proto-content");
@@ -511,13 +512,13 @@ export function handleStatsData(raw: ArrayBuffer) {
 
   // Parse channel list at offset 32
   const chCount = view.getUint8(32);
-  const channels: { name: string; id: number }[] = [];
+  const channels: { name: string; id: number; events: number }[] = [];
   const dynamic: { name: string; id: number }[] = [];
 
   for (let i = 0; i < chCount; i++) {
-    const o = 36 + i * 16;
+    const o = 36 + i * 20;
 
-    if (o + 16 > raw.byteLength) {
+    if (o + 20 > raw.byteLength) {
       break;
     }
 
@@ -532,8 +533,9 @@ export function handleStatsData(raw: ArrayBuffer) {
     }
 
     const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
+    const events = view.getUint32(o + 16, true);
 
-    channels.push({ name, id });
+    channels.push({ name, id, events });
 
     if (flags & 0x20) {
       dynamic.push({ name, id });
@@ -542,7 +544,7 @@ export function handleStatsData(raw: ArrayBuffer) {
 
   dynamicChannels = dynamic;
 
-  if (!protoBuilt) {
+  if (!protoBuilt || channels.length !== protoChannelCount) {
     buildProtoDom(content, channels);
   }
 
@@ -551,6 +553,14 @@ export function handleStatsData(raw: ArrayBuffer) {
 
     if (el) {
       el.textContent = String(stats[key]);
+    }
+  }
+
+  for (const ch of channels) {
+    const el = document.getElementById(`proto-ch-${ch.id}`);
+
+    if (el) {
+      el.textContent = String(ch.events);
     }
   }
 }
@@ -573,6 +583,7 @@ export function stopProtoPolling() {
 
 export function resetProtoState() {
   protoBuilt = false;
+  protoChannelCount = 0;
 
   const content = document.getElementById("proto-content");
 
@@ -584,7 +595,7 @@ export function resetProtoState() {
 
 function buildProtoDom(
   content: HTMLElement,
-  channels: { name: string; id: number }[],
+  channels: { name: string; id: number; events: number }[],
 ) {
   let html = '<div class="proto-section-label">Statistics</div>';
 
@@ -596,11 +607,12 @@ function buildProtoDom(
 
   channels.sort((a, b) => a.id - b.id);
   for (const ch of channels) {
-    html += `<div class="proto-row"><span>${ch.name}</span><span>${ch.id}</span></div>`;
+    html += `<div class="proto-row"><span>${ch.name}</span><span id="proto-ch-${ch.id}">${ch.events}</span></div>`;
   }
 
   content.innerHTML = html;
   protoBuilt = true;
+  protoChannelCount = channels.length;
 }
 
 // --- Channels ---

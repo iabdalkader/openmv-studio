@@ -61,6 +61,7 @@ struct ChannelInfo {
 pub struct Camera {
     transport: Option<Transport>,
     channels: HashMap<String, ChannelInfo>,
+    event_counts: HashMap<u8, u32>,
     max_payload: usize,
     pub sysinfo: Option<SystemInfo>,
     pub verinfo: Option<VersionInfo>,
@@ -77,6 +78,7 @@ impl Camera {
         Self {
             transport: None,
             channels: HashMap::new(),
+            event_counts: HashMap::new(),
             max_payload: 4096,
             sysinfo: None,
             verinfo: None,
@@ -106,6 +108,7 @@ impl Camera {
     fn disconnect(&mut self) {
         self.transport = None;
         self.channels.clear();
+        self.event_counts.clear();
         self.sysinfo = None;
         self.verinfo = None;
     }
@@ -206,6 +209,8 @@ impl Camera {
         let mut commands = Vec::new();
 
         for packet in events {
+            *self.event_counts.entry(packet.channel).or_insert(0) += 1;
+
             if packet.channel == 0 {
                 // System event on channel 0
                 if let Some(ref payload) = packet.payload {
@@ -645,7 +650,7 @@ impl Camera {
     fn do_get_stats(&mut self, tx: &Channel) -> Result<(), TransportError> {
         let stats = self.device_stats()?;
         let channels_info = self.get_channels();
-        let mut buf = Vec::with_capacity(1 + 36 + channels_info.len() * 16);
+        let mut buf = Vec::with_capacity(1 + 36 + channels_info.len() * 20);
         buf.push(TAG_STATS);
         for val in [
             stats.sent,
@@ -670,6 +675,8 @@ impl Camera {
             for _ in len..14 {
                 buf.push(0);
             }
+            let events = self.event_counts.get(id).copied().unwrap_or(0);
+            buf.extend_from_slice(&events.to_le_bytes());
         }
         let _ = tx.send(InvokeResponseBody::Raw(buf));
         Ok(())
