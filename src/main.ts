@@ -321,7 +321,8 @@ function setScriptRunning(running: boolean) {
 
   if (!running) {
     stopChannelsPolling();
-    clearChannelsCache();
+  } else if (isChannelsTabActive()) {
+    startChannelsPolling();
   }
 
   if (runStopLabel) {
