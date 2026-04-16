@@ -23,7 +23,7 @@ pub const TAG_SOFT_REBOOT: u8 = 0x10;
 pub const TAG_DISCONNECTED: u8 = 0x12;
 pub const TAG_ERROR: u8 = 0x13;
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     RunScript(String),
     StopScript,
@@ -35,10 +35,23 @@ pub enum Command {
     ReadStdout,
     ReadFrame,
     UpdateChannels,
+    Reset,
+    Bootloader,
     Disconnect,
 }
 
 impl Command {
+    fn is_priority(&self) -> bool {
+        matches!(
+            self,
+            Command::RunScript(_)
+                | Command::StopScript
+                | Command::Reset
+                | Command::Bootloader
+                | Command::Disconnect
+        )
+    }
+
     fn is_idempotent(&self) -> bool {
         matches!(
             self,
@@ -154,25 +167,27 @@ impl Camera {
     }
 
     fn execute(&mut self, cmd: Command, tx: &Channel) -> Vec<Command> {
-        let result = match cmd {
-            Command::RunScript(script) => self.exec_script(&script),
+        let result = match &cmd {
+            Command::RunScript(script) => self.exec_script(script),
             Command::StopScript => self.stop_script(),
-            Command::EnableStreaming { enable, raw } => self.enable_streaming(enable, raw),
-            Command::SetStreamSource(chip_id) => self.set_stream_source(chip_id),
+            Command::EnableStreaming { enable, raw } => self.enable_streaming(*enable, *raw),
+            Command::SetStreamSource(chip_id) => self.set_stream_source(*chip_id),
             Command::GetMemory => self.do_get_memory(tx),
             Command::GetStats => self.do_get_stats(tx),
-            Command::ReadChannel(id) => self.do_read_channel(id, tx),
+            Command::ReadChannel(id) => self.do_read_channel(*id, tx),
             Command::ReadStdout => self.do_read_stdout(tx),
             Command::ReadFrame => self.do_read_frame(tx),
             Command::UpdateChannels => {
                 let _ = self.update_channels();
                 Ok(())
             }
+            Command::Reset => self.do_reset(Opcode::SysReset),
+            Command::Bootloader => self.do_reset(Opcode::SysBoot),
             Command::Disconnect => unreachable!(),
         };
 
         if let Err(e) = result {
-            log::warn!("execute: {}", e);
+            log::warn!("execute({:?}): {}", cmd, e);
             let mut buf = vec![TAG_ERROR];
             buf.extend_from_slice(e.to_string().as_bytes());
             let _ = tx.send(InvokeResponseBody::Raw(buf));
@@ -492,6 +507,13 @@ impl Camera {
         self.ch_ioctl(id, ioctl::STREAM_SOURCE, &[chip_id])
     }
 
+    fn do_reset(&mut self, opcode: Opcode) -> Result<(), TransportError> {
+        // Send reset/boot command; ignore response since the camera will hard-reset.
+        let _ = self.cmd(opcode, 0, None, false);
+        self.disconnect();
+        Ok(())
+    }
+
     // -- Data queries --
 
     fn memory_stats(&mut self) -> Result<Vec<MemEntry>, TransportError> {
@@ -712,5 +734,11 @@ fn enqueue(queue: &mut Vec<Command>, cmd: Command) {
     if cmd.is_idempotent() && queue.iter().any(|c| c == &cmd) {
         return;
     }
-    queue.push(cmd);
+    if cmd.is_priority() {
+        // User actions go to the front of the queue.
+        let pos = queue.iter().position(|c| !c.is_priority()).unwrap_or(queue.len());
+        queue.insert(pos, cmd);
+    } else {
+        queue.push(cmd);
+    }
 }

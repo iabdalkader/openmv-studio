@@ -238,6 +238,24 @@ fn cmd_stop_script(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn cmd_reset(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
+    let st = state.lock().map_err(|e| e.to_string())?;
+    if let Some(ref tx) = st.cmd_tx {
+        let _ = tx.send(Command::Reset);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn cmd_bootloader(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
+    let st = state.lock().map_err(|e| e.to_string())?;
+    if let Some(ref tx) = st.cmd_tx {
+        let _ = tx.send(Command::Bootloader);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn cmd_enable_streaming(enable: bool, raw: bool, state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
     let st = state.lock().map_err(|e| e.to_string())?;
     if let Some(ref tx) = st.cmd_tx {
@@ -655,29 +673,16 @@ fn build_menu(
         .build()?;
 
     let tools = SubmenuBuilder::new(app, "Tools")
-        .text("threshold-editor", "Threshold Editor")
-        .text("apriltag-gen", "AprilTag Generator")
-        .separator()
-        .text("save-image", "Save Image")
-        .text("save-template", "Save Template")
-        .text("save-descriptor", "Save Descriptor")
+        .text("romfs-editor", "ROMFS Editor")
         .separator()
         .text("model-zoo", "Model Zoo")
-        .text("edge-impulse", "Edge Impulse")
-        .separator()
-        .text("dataset-editor", "Dataset Editor")
-        .text("video-tools", "Video Tools")
+        .text("apriltag-gen", "AprilTag Generator")
         .build()?;
 
     let device = SubmenuBuilder::new(app, "Device")
-        .text("fw-update", "Update Firmware")
-        .text("romfs-editor", "ROMFS Editor")
-        .separator()
-        .text("wifi-settings", "WiFi Settings")
-        .text("camera-settings", "Camera Settings")
-        .separator()
         .text("reset-device", "Reset Device")
         .text("bootloader", "Enter Bootloader")
+        .text("fw-update", "Update Firmware")
         .build()?;
 
     let view = SubmenuBuilder::new(app, "View")
@@ -736,6 +741,8 @@ pub fn run() {
             cmd_get_sysinfo,
             cmd_run_script,
             cmd_stop_script,
+            cmd_reset,
+            cmd_bootloader,
             cmd_enable_streaming,
             cmd_set_stream_source,
             cmd_get_memory,

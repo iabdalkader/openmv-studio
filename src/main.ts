@@ -1029,6 +1029,12 @@ listen<string>("menu-action", (event) => {
     case "save-as":
       saveFileAs();
       break;
+    case "reset-device":
+      invoke("cmd_reset");
+      break;
+    case "bootloader":
+      invoke("cmd_bootloader");
+      break;
     default:
       if (action.startsWith("recent:")) {
         const idx = parseInt(action.slice(7), 10);
