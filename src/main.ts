@@ -527,6 +527,15 @@ async function runScript() {
   try {
     await sendStreaming();
     await invoke("cmd_run_script", { script: editor.getValue() });
+
+    // Firmware reverts to default source on script start,
+    // re-send the user's selected source.
+    const chipId = parseInt(fbSourceSelect.value, 10);
+
+    if (!isNaN(chipId)) {
+      await invoke("cmd_set_stream_source", { chipId });
+    }
+
     setScriptRunning(true);
   } catch (e: any) {
     console.error("Run failed:", e);

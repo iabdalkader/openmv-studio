@@ -59,6 +59,11 @@ function initVerticalResize() {
     const rpH = rp.getBoundingClientRect().height / state.uiScale;
     const fbHandleH = 4;
 
+    const headerH = (fb.querySelector(".fb-header")
+      ?.getBoundingClientRect().height ?? 0) / state.uiScale;
+    const vpW = (fb.querySelector(".fb-viewport")
+      ?.getBoundingClientRect().width ?? 0) / state.uiScale;
+
     const onMove = (ev: MouseEvent) => {
       const delta = startY - ev.clientY / state.uiScale;
       let h = Math.max(60, Math.min(600, startH + delta));
@@ -72,21 +77,36 @@ function initVerticalResize() {
         }
       }
 
-      const maH = mainArea.getBoundingClientRect().height / state.uiScale;
-      const pct = (h / maH) * 100;
-
-      mainArea.style.gridTemplateRows = `32px 1fr 4px ${pct}%`;
-
       if (state.splitLocked) {
         const actualDelta = h - startH;
-        const fbH = Math.max(80, Math.min(rpH - fbHandleH - 80,
+        let fbH = Math.max(80, Math.min(rpH - fbHandleH - 80,
           startFbH - actualDelta));
+
+        // Snap to frame aspect ratio
+        const fW = wglWidth();
+        const fH = wglHeight();
+
+        if (fW > 0 && fH > 0 && vpW > 0) {
+          const fitH = (vpW / fW) * fH + headerH;
+
+          if (Math.abs(fbH - fitH) < SNAP_PX) {
+            fbH = fitH;
+            // Snap terminal to match
+            h = startH - (fbH - startFbH);
+          }
+        }
+
         const toolsH = rpH - fbH - fbHandleH;
         fb.style.flex = "none";
         tools.style.flex = "none";
         fb.style.height = (fbH / rpH) * 100 + "%";
         tools.style.height = (toolsH / rpH) * 100 + "%";
       }
+
+      const maH = mainArea.getBoundingClientRect().height / state.uiScale;
+      const pct = (h / maH) * 100;
+
+      mainArea.style.gridTemplateRows = `32px 1fr 4px ${pct}%`;
     };
 
     const onUp = () => {
