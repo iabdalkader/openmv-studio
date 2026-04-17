@@ -145,6 +145,45 @@
       transform: translate(-50%, -50%);
       font-size: 13px; color: var(--text-tertiary);
     }
+
+    #viewport-toolbar {
+      position: absolute; bottom: 10px; left: 10px;
+      display: flex; gap: 4px;
+    }
+    .vp-btn {
+      padding: 5px 10px; border: 1px solid var(--border-mid);
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated); color: var(--text-secondary);
+      font-size: 11px; cursor: pointer;
+      font-family: -apple-system, system-ui, sans-serif;
+    }
+    .vp-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+    #search-box {
+      padding: 12px; border-bottom: 1px solid var(--border-subtle);
+    }
+    #pin-search {
+      width: 100%; padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-mid);
+      background: var(--bg-surface); color: var(--text-primary);
+      font-size: 12px; font-family: var(--font-code);
+      outline: none;
+    }
+    #pin-search:focus { border-color: var(--accent-blue); }
+    #pin-search::placeholder { color: var(--text-muted); }
+    #search-results {
+      margin-top: 8px; max-height: 200px; overflow-y: auto;
+    }
+    .search-result {
+      padding: 4px 8px; border-radius: var(--radius-sm);
+      font-size: 11px; font-family: var(--font-code);
+      color: var(--text-secondary); cursor: pointer;
+      display: flex; flex-wrap: wrap;
+    }
+    .search-result:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .search-result .sr-name { color: var(--accent-blue); font-weight: 600; }
+    .search-result .sr-func { color: var(--text-tertiary); }
   </style>
   <script type="importmap">
   {
@@ -161,8 +200,19 @@
       <canvas id="three-canvas"></canvas>
       <div id="hover-label"></div>
       <div id="loading-msg">Select a board to view pinout</div>
+      <div id="viewport-toolbar">
+        <button class="vp-btn" id="btn-reset" title="Reset view">Reset</button>
+        <button class="vp-btn" id="btn-front" title="Front view">Front</button>
+        <button class="vp-btn" id="btn-back" title="Back view">Back</button>
+        <button class="vp-btn" id="btn-top" title="Top view">Top</button>
+        <button class="vp-btn" id="btn-bottom" title="Bottom view">Bottom</button>
+      </div>
     </div>
     <div id="info-panel">
+      <div id="search-box">
+        <input type="text" id="pin-search" placeholder="Search pins, functions...">
+        <div id="search-results"></div>
+      </div>
       <div id="board-selector">
         <label>Board</label>
         <select id="board-select">
@@ -197,6 +247,10 @@
     var pinInfoEl = document.getElementById("pin-info");
     var noPinEl = document.getElementById("no-pin-selected");
 
+    // --- DOM refs (toolbar + search) ---
+    var pinSearch = document.getElementById("pin-search");
+    var searchResults = document.getElementById("search-results");
+
     // --- State ---
     var boardIndex = [];
     var pinoutData = {};
@@ -205,6 +259,9 @@
     var hoveredPin = null;
     var selectedPin = null;
     var currentModel = null;
+    var savedView = null;
+    var modelCenter = new THREE.Vector3();
+    var modelDist = 100;
 
     // --- Theme colors ---
     var themeBg = { dark: 0x1e1e23, light: 0xf5f5f7 };
@@ -227,17 +284,18 @@
     controls.panSpeed = 1.2;
     controls.dynamicDampingFactor = 0.15;
 
-    // Lighting
-    var ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambient);
+    // Lighting - hemisphere for even base, camera-attached key light
+    var hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+    scene.add(hemi);
 
-    var dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight1.position.set(50, 100, 50);
-    scene.add(dirLight1);
+    var camLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    camLight.position.set(0, 0, 1);
+    camera.add(camLight);
+    scene.add(camera);
 
-    var dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
-    dirLight2.position.set(-50, 80, -30);
-    scene.add(dirLight2);
+    var fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    fillLight.position.set(-1, -0.5, -0.5);
+    camera.add(fillLight);
 
     // Raycaster
     var raycaster = new THREE.Raycaster();
@@ -344,11 +402,24 @@
           var maxDim = Math.max(size.x, size.y, size.z);
           var dist = maxDim * 1.8;
 
-          camera.position.set(center.x, center.y - dist, center.z);
-          camera.up.set(0, 0, 1);
+          camera.near = maxDim * 0.001;
+          camera.far = maxDim * 100;
+          camera.updateProjectionMatrix();
+
+          modelCenter.copy(center);
+          modelDist = dist;
+
+          camera.position.set(center.x, center.y, center.z + dist);
+          camera.up.set(0, 1, 0);
           camera.lookAt(center);
           controls.target.copy(center);
           controls.update();
+
+          savedView = {
+            pos: camera.position.clone(),
+            up: camera.up.clone(),
+            target: controls.target.clone()
+          };
 
           loadingMsg.style.display = "none";
         })
@@ -364,9 +435,10 @@
         return;
       }
       if (highlight) {
+        mesh.material.color.setHex(highlight === "select" ? 0x3b8af5 : 0x5b9cf5);
         if (mesh.material.emissive) {
-          mesh.material.emissive.setHex(0x5b9cf5);
-          mesh.material.emissiveIntensity = highlight === "hover" ? 0.3 : 0.5;
+          mesh.material.emissive.setHex(highlight === "select" ? 0x3b8af5 : 0x5b9cf5);
+          mesh.material.emissiveIntensity = highlight === "select" ? 1.0 : 0.6;
         }
       } else {
         var orig = originalMaterials.get(mesh);
@@ -515,10 +587,132 @@
         });
     });
 
-    // Esc to close
+    // --- View buttons ---
+    function setView(posOffset, upDir) {
+      camera.position.set(
+        modelCenter.x + posOffset[0] * modelDist,
+        modelCenter.y + posOffset[1] * modelDist,
+        modelCenter.z + posOffset[2] * modelDist
+      );
+      camera.up.set(upDir[0], upDir[1], upDir[2]);
+      camera.lookAt(modelCenter);
+      controls.target.copy(modelCenter);
+      controls.update();
+    }
+
+    document.getElementById("btn-reset").addEventListener("click", function() {
+      if (savedView) {
+        camera.position.copy(savedView.pos);
+        camera.up.copy(savedView.up);
+        camera.lookAt(savedView.target);
+        controls.target.copy(savedView.target);
+        controls.update();
+      }
+    });
+
+    document.getElementById("btn-front").addEventListener("click", function() {
+      setView([0, -1, 0], [0, 0, 1]);
+    });
+
+    document.getElementById("btn-back").addEventListener("click", function() {
+      setView([0, 1, 0], [0, 0, 1]);
+    });
+
+    document.getElementById("btn-top").addEventListener("click", function() {
+      setView([0, 0, 1], [0, -1, 0]);
+    });
+
+    document.getElementById("btn-bottom").addEventListener("click", function() {
+      setView([0, 0, -1], [0, 1, 0]);
+    });
+
+    // --- Search ---
+    function clearSearchHighlights() {
+      pinMeshes.forEach(function(m) {
+        if (m !== selectedPin) {
+          setHighlight(m, false);
+        }
+      });
+    }
+
+    pinSearch.addEventListener("input", function() {
+      var query = pinSearch.value.trim().toLowerCase();
+      searchResults.innerHTML = "";
+      clearSearchHighlights();
+
+      if (!query) {
+        return;
+      }
+
+      var matches = [];
+      for (var key in pinoutData) {
+        var pin = pinoutData[key];
+        var searchable = [
+          pin.name, pin.gpio, pin.voltage, pin.description
+        ].concat(pin.functions || []).filter(Boolean).join(" ").toLowerCase();
+
+        if (searchable.indexOf(query) !== -1) {
+          matches.push({ key: key, pin: pin });
+        }
+      }
+
+      // Highlight matching meshes
+      matches.forEach(function(m) {
+        var mesh = pinMeshes.find(function(pm) {
+          return (pm.userData.pinName || pm.name) === m.key;
+        });
+        if (mesh && mesh !== selectedPin) {
+          setHighlight(mesh, "hover");
+        }
+      });
+
+      // Show results list
+      matches.forEach(function(m) {
+        var div = document.createElement("div");
+        div.className = "search-result";
+
+        var matchedFuncs = (m.pin.functions || []).filter(function(f) {
+          return f.toLowerCase().indexOf(query) !== -1;
+        });
+        var funcStr = matchedFuncs.length > 0 ? matchedFuncs.join(", ") : "";
+        div.innerHTML = '<div style="display:flex;justify-content:space-between;width:100%">' +
+          '<span class="sr-name">' + m.pin.name + '</span>' +
+          '<span class="sr-func">' + (m.pin.gpio || "") + '</span></div>' +
+          (funcStr ? '<div class="sr-func" style="width:100%;margin-top:2px">' + funcStr + '</div>' : '');
+
+        div.addEventListener("click", function() {
+          // Select this pin
+          var mesh = pinMeshes.find(function(pm) {
+            return (pm.userData.pinName || pm.name) === m.key;
+          });
+          if (mesh) {
+            clearSearchHighlights();
+            if (selectedPin && selectedPin !== mesh) {
+              setHighlight(selectedPin, false);
+            }
+            selectedPin = mesh;
+            setHighlight(selectedPin, "select");
+            showPinInfo(m.key);
+          }
+          pinSearch.value = "";
+          searchResults.innerHTML = "";
+        });
+
+        searchResults.appendChild(div);
+      });
+    });
+
+    // Esc: clear search first, then close
     document.addEventListener("keydown", function(e) {
       if (e.key === "Escape") {
-        window.__TAURI__.window.getCurrentWindow().close();
+        if (pinSearch.value) {
+          pinSearch.value = "";
+          searchResults.innerHTML = "";
+          clearSearchHighlights();
+          pinSearch.blur();
+        } else {
+          window.__TAURI__.window.getCurrentWindow().close();
+        }
       }
     });
 

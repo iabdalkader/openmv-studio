@@ -3,7 +3,7 @@
     {
       "type": "OPENMV_N6",
       "display": "OpenMV Cam N6",
-      "model": "models/OPENMV_N6.gltf",
+      "model": "models/OPENMV_N6.glb",
       "pinout": "pinouts/OPENMV_N6.json"
     }
   ]
