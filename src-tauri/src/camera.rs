@@ -1,7 +1,7 @@
 // OpenMV Camera -- worker thread driving the serial protocol.
 // Owns the transport. Runs the command loop on a dedicated thread.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -120,21 +120,15 @@ impl Camera {
 
     fn disconnect(&mut self) {
         self.transport = None;
-        self.channels.clear();
-        self.event_counts.clear();
         self.sysinfo = None;
         self.verinfo = None;
+        self.channels.clear();
+        self.event_counts.clear();
     }
 
     // -- Worker loop --
-
-    pub fn run(
-        &mut self,
-        rx: mpsc::Receiver<Command>,
-        tx: &Channel,
-        poll_interval: Duration,
-    ) {
-        let mut queue: Vec<Command> = Vec::new();
+    pub fn run(&mut self, rx: mpsc::Receiver<Command>, tx: &Channel, poll_interval: Duration) {
+        let mut queue: VecDeque<Command> = VecDeque::new();
 
         loop {
             // Drain incoming commands, dedup idempotent ones
@@ -143,7 +137,7 @@ impl Camera {
             }
 
             if !queue.is_empty() {
-                let cmd = queue.remove(0);
+                let cmd = queue.pop_front().unwrap();
                 if matches!(cmd, Command::Disconnect) {
                     break;
                 }
@@ -234,9 +228,7 @@ impl Camera {
                         match event_type {
                             0x00 => commands.push(Command::UpdateChannels),
                             0x02 => {
-                                let _ = tx.send(InvokeResponseBody::Raw(
-                                    vec![TAG_SOFT_REBOOT],
-                                ));
+                                let _ = tx.send(InvokeResponseBody::Raw(vec![TAG_SOFT_REBOOT]));
                             }
                             _ => {}
                         }
@@ -304,9 +296,9 @@ impl Camera {
             .send_packet(opcode, channel, PacketFlags::empty(), data)?;
         match self.recv_response() {
             Ok(r) => Ok(r),
-            Err(
-                TransportError::Checksum | TransportError::Sequence | TransportError::Timeout,
-            ) if resync => {
+            Err(TransportError::Checksum | TransportError::Sequence | TransportError::Timeout)
+                if resync =>
+            {
                 log::warn!("Protocol error, resyncing...");
                 self.resync()?;
                 self.transport()?
@@ -395,8 +387,7 @@ impl Camera {
         }
         if let Ok(Some(p)) = self.cmd(Opcode::SysInfo, 0, None, true) {
             if p.len() >= 76 {
-                let u =
-                    |o: usize| u32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+                let u = |o: usize| u32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
                 let usb_id = u(16);
                 let caps = u(40);
                 self.sysinfo = Some(SystemInfo {
@@ -602,11 +593,7 @@ impl Camera {
         result
     }
 
-    fn read_frame_locked(
-        &mut self,
-        id: u8,
-        tx: &Channel,
-    ) -> Result<(), TransportError> {
+    fn read_frame_locked(&mut self, id: u8, tx: &Channel) -> Result<(), TransportError> {
         let size = self.ch_size(id, false)?;
         if size <= 24 {
             return Ok(());
@@ -730,15 +717,18 @@ impl Camera {
     }
 }
 
-fn enqueue(queue: &mut Vec<Command>, cmd: Command) {
+fn enqueue(queue: &mut VecDeque<Command>, cmd: Command) {
     if cmd.is_idempotent() && queue.iter().any(|c| c == &cmd) {
         return;
     }
     if cmd.is_priority() {
         // User actions go to the front of the queue.
-        let pos = queue.iter().position(|c| !c.is_priority()).unwrap_or(queue.len());
+        let pos = queue
+            .iter()
+            .position(|c| !c.is_priority())
+            .unwrap_or(queue.len());
         queue.insert(pos, cmd);
     } else {
-        queue.push(cmd);
+        queue.push_back(cmd);
     }
 }

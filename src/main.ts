@@ -524,6 +524,29 @@ async function toggleConnect() {
 
 // --- Run / stop script ---
 
+// Strip # comments from script to reduce firmware memory usage.
+// Lines are preserved (never removed) so traceback line numbers stay correct.
+function stripComments(src: string): string {
+  return src.split("\n").map((line) => {
+    let inStr: string | null = null;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inStr) {
+        if (ch === "\\") {
+          i++;
+        } else if (ch === inStr) {
+          inStr = null;
+        }
+      } else if (ch === "#") {
+        return line.slice(0, i).trimEnd();
+      } else if (ch === "'" || ch === '"') {
+        inStr = ch;
+      }
+    }
+    return line;
+  }).join("\n");
+}
+
 async function runScript() {
   if (!state.isConnected) {
     return;
@@ -533,7 +556,8 @@ async function runScript() {
 
   try {
     await sendStreaming();
-    await invoke("cmd_run_script", { script: editor.getValue() });
+    const script = stripComments(editor.getValue());
+    await invoke("cmd_run_script", { script });
 
     // Firmware reverts to default source on script start,
     // re-send the user's selected source.
