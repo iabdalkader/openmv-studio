@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "dfu-progress",
-    "settings"
+    "settings",
+    "pinout"
   ],
   "permissions": [
     "core:default",

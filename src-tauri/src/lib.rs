@@ -765,10 +765,11 @@ fn build_menu(
         .build()?;
 
     let tools = SubmenuBuilder::new(app, "Tools")
-        .text("romfs-editor", "ROMFS Editor")
+        .text("pinout-viewer", "Pinout Viewer")
         .separator()
         .text("model-zoo", "Model Zoo")
         .text("apriltag-gen", "AprilTag Generator")
+        .text("romfs-editor", "ROMFS Editor")
         .build()?;
 
     let device = SubmenuBuilder::new(app, "Device")

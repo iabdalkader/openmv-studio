@@ -62,6 +62,7 @@ import {
 } from "./panels";
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { openPinoutViewer } from "./pinout";
 
 // --- Context menu ---
 
@@ -1206,6 +1207,9 @@ listen<string>("menu-action", (event) => {
       break;
     case "erase-fs":
       eraseFilesystem();
+      break;
+    case "pinout-viewer":
+      openPinoutViewer();
       break;
     default:
       if (action.startsWith("recent:")) {

@@ -7,6 +7,7 @@ import { state } from "./state";
 import { wglCtx, wglWidth, wglHeight } from "./gl";
 import { hideWelcome } from "./welcome";
 import { createFile, switchToFile, openFiles } from "./files";
+import { openPinoutViewer } from "./pinout";
 
 // --- Init and tab switching ---
 
@@ -1196,6 +1197,11 @@ function initSidebar() {
 
       if (panel === "docs") {
         openDocsWindow();
+        return;
+      }
+
+      if (panel === "pinout") {
+        openPinoutViewer();
         return;
       }
 

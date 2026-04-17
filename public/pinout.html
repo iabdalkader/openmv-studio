@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root, [data-theme="dark"] {
+      --bg-panel: #19191d;
+      --bg-surface: #1e1e23;
+      --bg-elevated: #25252b;
+      --bg-hover: #2a2a32;
+      --bg-active: #32323c;
+      --border-subtle: rgba(255,255,255,0.06);
+      --border-mid: rgba(255,255,255,0.10);
+      --text-primary: #e8e6e3;
+      --text-secondary: #9d9b97;
+      --text-tertiary: #6b6966;
+      --text-muted: #4a4845;
+      --accent-blue: #5b9cf5;
+      --accent-blue-dim: rgba(91,156,245,0.12);
+      --scene-bg: #1e1e23;
+      --font-code: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      color-scheme: dark;
+    }
+    [data-theme="light"] {
+      --bg-panel: #ebebef;
+      --bg-surface: #f5f5f7;
+      --bg-elevated: #e2e2e6;
+      --bg-hover: #d8d8dd;
+      --bg-active: #ceced4;
+      --border-subtle: rgba(0,0,0,0.10);
+      --border-mid: rgba(0,0,0,0.18);
+      --text-primary: #1a1a1e;
+      --text-secondary: #4a4a54;
+      --text-tertiary: #6e6e7a;
+      --text-muted: #9a9aa4;
+      --accent-blue: #2670e0;
+      --accent-blue-dim: rgba(38,112,224,0.12);
+      --scene-bg: #f5f5f7;
+      color-scheme: light;
+    }
+
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: var(--bg-panel);
+      color: var(--text-primary);
+      height: 100vh; overflow: hidden;
+      user-select: none;
+    }
+
+    #pinout-app {
+      display: flex; height: 100%;
+    }
+
+    #viewport {
+      flex: 1; position: relative; overflow: hidden;
+      background: var(--bg-surface);
+    }
+    #viewport canvas {
+      display: block; width: 100%; height: 100%;
+    }
+
+    #hover-label {
+      position: absolute; pointer-events: none;
+      padding: 4px 10px; border-radius: var(--radius-sm);
+      background: var(--bg-elevated); color: var(--text-primary);
+      font-size: 12px; font-weight: 600;
+      border: 1px solid var(--border-mid);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      display: none; white-space: nowrap;
+      transform: translate(12px, -50%);
+    }
+
+    #info-panel {
+      width: 260px; flex-shrink: 0;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border-subtle);
+      display: flex; flex-direction: column;
+      overflow-y: auto;
+    }
+
+    #board-selector {
+      padding: 12px; border-bottom: 1px solid var(--border-subtle);
+    }
+    #board-selector label {
+      font-size: 11px; color: var(--text-tertiary);
+      display: block; margin-bottom: 6px;
+    }
+    #board-select {
+      width: 100%; padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-mid);
+      background: var(--bg-surface); color: var(--text-primary);
+      font-size: 12px; font-family: var(--font-code);
+    }
+
+    #pin-info { padding: 16px 12px; display: none; }
+    #pin-info.visible { display: block; }
+
+    .pin-name {
+      font-size: 20px; font-weight: 700;
+      color: var(--accent-blue); margin-bottom: 4px;
+      font-family: var(--font-code);
+    }
+    .pin-gpio {
+      font-size: 12px; color: var(--text-tertiary);
+      font-family: var(--font-code); margin-bottom: 12px;
+    }
+    .pin-desc {
+      font-size: 12px; color: var(--text-secondary);
+      margin-bottom: 16px; line-height: 1.5;
+    }
+
+    .pin-section-title {
+      font-size: 10px; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .pin-tag {
+      display: inline-block; padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-active); color: var(--text-secondary);
+      font-size: 11px; font-family: var(--font-code);
+      margin: 0 4px 4px 0;
+    }
+    .pin-voltage {
+      display: inline-block; padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--accent-blue-dim); color: var(--accent-blue);
+      font-size: 11px; font-family: var(--font-code);
+      font-weight: 600; margin-bottom: 12px;
+    }
+
+    #no-pin-selected {
+      padding: 16px 12px;
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    #loading-msg {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 13px; color: var(--text-tertiary);
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="pinout-app">
+    <div id="viewport">
+      <canvas id="three-canvas"></canvas>
+      <div id="hover-label"></div>
+      <div id="loading-msg">Select a board to view pinout</div>
+    </div>
+    <div id="info-panel">
+      <div id="board-selector">
+        <label>Board</label>
+        <select id="board-select">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div id="pin-info">
+        <div class="pin-name" id="pi-name"></div>
+        <div class="pin-gpio" id="pi-gpio"></div>
+        <div class="pin-voltage" id="pi-voltage"></div>
+        <div class="pin-desc" id="pi-desc"></div>
+        <div class="pin-section-title">Functions</div>
+        <div id="pi-functions"></div>
+      </div>
+      <div id="no-pin-selected">Click a pin to see details</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { TrackballControls } from "three/addons/controls/TrackballControls.js";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+    var listen = window.__TAURI__.event.listen;
+    var emit = window.__TAURI__.event.emit;
+
+    // --- DOM refs ---
+    var canvas = document.getElementById("three-canvas");
+    var hoverLabel = document.getElementById("hover-label");
+    var loadingMsg = document.getElementById("loading-msg");
+    var boardSelect = document.getElementById("board-select");
+    var pinInfoEl = document.getElementById("pin-info");
+    var noPinEl = document.getElementById("no-pin-selected");
+
+    // --- State ---
+    var boardIndex = [];
+    var pinoutData = {};
+    var pinMeshes = [];
+    var originalMaterials = new Map();
+    var hoveredPin = null;
+    var selectedPin = null;
+    var currentModel = null;
+
+    // --- Theme colors ---
+    var themeBg = { dark: 0x1e1e23, light: 0xf5f5f7 };
+    var resolvedTheme = "dark";
+
+    // --- Three.js setup ---
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    var scene = new THREE.Scene();
+    scene.background = new THREE.Color(themeBg.dark);
+
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+    camera.position.set(0, 80, 80);
+
+    var controls = new TrackballControls(camera, canvas);
+    controls.rotateSpeed = 2.0;
+    controls.zoomSpeed = 1.2;
+    controls.panSpeed = 1.2;
+    controls.dynamicDampingFactor = 0.15;
+
+    // Lighting
+    var ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+
+    var dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight1.position.set(50, 100, 50);
+    scene.add(dirLight1);
+
+    var dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+    dirLight2.position.set(-50, 80, -30);
+    scene.add(dirLight2);
+
+    // Raycaster
+    var raycaster = new THREE.Raycaster();
+    var mouse = new THREE.Vector2();
+
+    // --- Resize ---
+    function resize() {
+      var vp = document.getElementById("viewport");
+      var w = vp.clientWidth;
+      var h = vp.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      controls.handleResize();
+    }
+    window.addEventListener("resize", resize);
+
+    // --- Animation loop ---
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // --- Model loading ---
+    var loader = new GLTFLoader();
+
+    function clearModel() {
+      if (currentModel) {
+        scene.remove(currentModel);
+        currentModel.traverse(function(child) {
+          if (child.isMesh) {
+            child.geometry.dispose();
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(function(m) { m.dispose(); });
+              } else {
+                child.material.dispose();
+              }
+            }
+          }
+        });
+        currentModel = null;
+      }
+      pinMeshes = [];
+      originalMaterials.clear();
+      hoveredPin = null;
+      selectedPin = null;
+      showPinInfo(null);
+    }
+
+    function loadBoard(boardEntry) {
+      clearModel();
+      loadingMsg.style.display = "";
+      loadingMsg.textContent = "Loading model...";
+
+      // Load both pinout JSON and GLTF model, then wire up pins
+      var pinoutPromise = fetch(boardEntry.pinout)
+        .then(function(r) { return r.json(); })
+        .then(function(data) { return data.pins || {}; })
+        .catch(function(e) {
+          console.error("Failed to load pinout:", e);
+          return {};
+        });
+
+      var modelPromise = new Promise(function(resolve, reject) {
+        loader.load(boardEntry.model, resolve, undefined, reject);
+      });
+
+      Promise.all([pinoutPromise, modelPromise])
+        .then(function(results) {
+          pinoutData = results[0];
+          var gltf = results[1];
+
+          currentModel = gltf.scene;
+          scene.add(currentModel);
+
+          // Find pin meshes - check both mesh name and parent name
+          // (GLTFLoader may put the node name on a parent Group)
+          currentModel.traverse(function(child) {
+            if (!child.isMesh) {
+              return;
+            }
+            var pinName = null;
+            if (pinoutData[child.name]) {
+              pinName = child.name;
+            } else if (child.parent && pinoutData[child.parent.name]) {
+              pinName = child.parent.name;
+            }
+            if (pinName) {
+              child.userData.pinName = pinName;
+              pinMeshes.push(child);
+              if (child.material) {
+                child.material = child.material.clone();
+                originalMaterials.set(child, child.material.clone());
+              }
+            }
+          });
+          // Auto-frame camera
+          var box = new THREE.Box3().setFromObject(currentModel);
+          var center = box.getCenter(new THREE.Vector3());
+          var size = box.getSize(new THREE.Vector3());
+          var maxDim = Math.max(size.x, size.y, size.z);
+          var dist = maxDim * 1.8;
+
+          camera.position.set(center.x, center.y - dist, center.z);
+          camera.up.set(0, 0, 1);
+          camera.lookAt(center);
+          controls.target.copy(center);
+          controls.update();
+
+          loadingMsg.style.display = "none";
+        })
+        .catch(function(err) {
+          console.error("Failed to load board:", err);
+          loadingMsg.textContent = "Failed to load model";
+        });
+    }
+
+    // --- Pin interaction ---
+    function setHighlight(mesh, highlight) {
+      if (!mesh || !mesh.material) {
+        return;
+      }
+      if (highlight) {
+        if (mesh.material.emissive) {
+          mesh.material.emissive.setHex(0x5b9cf5);
+          mesh.material.emissiveIntensity = highlight === "hover" ? 0.3 : 0.5;
+        }
+      } else {
+        var orig = originalMaterials.get(mesh);
+        if (orig) {
+          mesh.material.copy(orig);
+        }
+      }
+    }
+
+    function showPinInfo(pinName) {
+      if (!pinName || !pinoutData[pinName]) {
+        pinInfoEl.classList.remove("visible");
+        noPinEl.style.display = "";
+        return;
+      }
+
+      var pin = pinoutData[pinName];
+      document.getElementById("pi-name").textContent = pin.name;
+      document.getElementById("pi-gpio").textContent = pin.gpio || "";
+      document.getElementById("pi-voltage").textContent = pin.voltage || "";
+      document.getElementById("pi-desc").textContent = pin.description || "";
+
+      var funcsEl = document.getElementById("pi-functions");
+      funcsEl.innerHTML = "";
+      if (pin.functions) {
+        pin.functions.forEach(function(f) {
+          var tag = document.createElement("span");
+          tag.className = "pin-tag";
+          tag.textContent = f;
+          funcsEl.appendChild(tag);
+        });
+      }
+
+      pinInfoEl.classList.add("visible");
+      noPinEl.style.display = "none";
+    }
+
+    canvas.addEventListener("pointermove", function(e) {
+      var rect = canvas.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      var hits = raycaster.intersectObjects(pinMeshes, false);
+
+      var hit = hits.length > 0 ? hits[0].object : null;
+
+      if (hit !== hoveredPin) {
+        // Restore previous hover (unless it's selected)
+        if (hoveredPin && hoveredPin !== selectedPin) {
+          setHighlight(hoveredPin, false);
+        }
+        hoveredPin = hit;
+        if (hoveredPin && hoveredPin !== selectedPin) {
+          setHighlight(hoveredPin, "hover");
+        }
+      }
+
+      if (hit) {
+        var meshPinName = hit.userData.pinName || hit.name;
+        var pinEntry = pinoutData[meshPinName];
+        hoverLabel.textContent = pinEntry ? pinEntry.name : meshPinName;
+        hoverLabel.style.display = "";
+        hoverLabel.style.left = e.clientX + "px";
+        hoverLabel.style.top = e.clientY + "px";
+        canvas.style.cursor = "pointer";
+      } else {
+        hoverLabel.style.display = "none";
+        canvas.style.cursor = "";
+      }
+    });
+
+    canvas.addEventListener("click", function() {
+      if (hoveredPin) {
+        // Deselect previous
+        if (selectedPin && selectedPin !== hoveredPin) {
+          setHighlight(selectedPin, false);
+        }
+        selectedPin = hoveredPin;
+        setHighlight(selectedPin, "select");
+        showPinInfo(selectedPin.userData.pinName || selectedPin.name);
+      } else {
+        // Click on empty space - deselect
+        if (selectedPin) {
+          setHighlight(selectedPin, false);
+          selectedPin = null;
+          showPinInfo(null);
+        }
+      }
+    });
+
+    // --- Board selector ---
+    boardSelect.addEventListener("change", function() {
+      var type = boardSelect.value;
+      var entry = boardIndex.find(function(b) { return b.type === type; });
+      if (entry) {
+        loadBoard(entry);
+      }
+    });
+
+    // --- Init ---
+    listen("pinout-init", function(event) {
+      var d = event.payload;
+      resolvedTheme = d.resolvedTheme || "dark";
+      document.documentElement.setAttribute("data-theme", resolvedTheme);
+      scene.background = new THREE.Color(themeBg[resolvedTheme] || themeBg.dark);
+
+      // Load board index
+      fetch("pinouts/index.json")
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          boardIndex = data.boards || [];
+          boardSelect.innerHTML = "";
+
+          if (boardIndex.length === 0) {
+            var opt = document.createElement("option");
+            opt.textContent = "No boards available";
+            boardSelect.appendChild(opt);
+            return;
+          }
+
+          var selectedType = null;
+          boardIndex.forEach(function(b) {
+            var opt = document.createElement("option");
+            opt.value = b.type;
+            opt.textContent = b.display;
+            if (d.connectedBoard && b.type === d.connectedBoard) {
+              opt.selected = true;
+              selectedType = b.type;
+            }
+            boardSelect.appendChild(opt);
+          });
+
+          if (!selectedType) {
+            selectedType = boardIndex[0].type;
+          }
+
+          var entry = boardIndex.find(function(b) { return b.type === selectedType; });
+          if (entry) {
+            loadBoard(entry);
+          }
+        })
+        .catch(function(e) {
+          console.error("Failed to load board index:", e);
+          loadingMsg.textContent = "Failed to load board data";
+        });
+    });
+
+    // Esc to close
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        window.__TAURI__.window.getCurrentWindow().close();
+      }
+    });
+
+    // Initial resize
+    resize();
+
+    // Signal ready
+    emit("pinout-ready", {});
+  </script>
+</body>
+</html>

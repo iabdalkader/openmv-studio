@@ -1,0 +1,10 @@
+{
+  "boards": [
+    {
+      "type": "OPENMV_N6",
+      "display": "OpenMV Cam N6",
+      "model": "models/OPENMV_N6.gltf",
+      "pinout": "pinouts/OPENMV_N6.json"
+    }
+  ]
+}
