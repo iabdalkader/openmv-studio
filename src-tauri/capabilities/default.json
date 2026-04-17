@@ -3,15 +3,19 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "dfu-progress"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-create",
+    "core:webview:allow-create-webview-window",
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
     "dialog:allow-ask",
     "dialog:allow-message",
+    "core:window:allow-close",
     "core:window:allow-destroy",
     "store:default",
     "fs:default",

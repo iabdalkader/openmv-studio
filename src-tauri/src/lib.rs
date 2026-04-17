@@ -4,6 +4,7 @@ mod protocol;
 mod transport;
 
 use std::sync::{Arc, Mutex, mpsc};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -282,6 +283,7 @@ fn cmd_bootloader(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
 async fn cmd_erase_filesystem(
     app: tauri::AppHandle,
     state: State<'_, Arc<Mutex<AppState>>>,
+    dfu_running: State<'_, Arc<AtomicBool>>,
 ) -> Result<(), String> {
     let (vid_pid, fs_partition) = {
         let st = state.lock().map_err(|e| e.to_string())?;
@@ -312,7 +314,9 @@ async fn cmd_erase_filesystem(
 
     // Run the blocking DFU operation on a background thread
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let running = dfu_running.inner().clone();
+    running.store(true, Ordering::SeqCst);
+    let result = tauri::async_runtime::spawn_blocking(move || {
         // Wait for worker to finish and USB re-enumeration
         std::thread::sleep(Duration::from_secs(3));
 
@@ -323,7 +327,9 @@ async fn cmd_erase_filesystem(
         dfu::erase_filesystem(&handle, &config)
     })
     .await
-    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Task failed: {}", e))?;
+    running.store(false, Ordering::SeqCst);
+    result
 }
 
 #[tauri::command]
@@ -812,6 +818,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .manage(Arc::new(AtomicBool::new(false)))
         .manage(Arc::new(Mutex::new(AppState {
             boards: vec![],
             sensors: serde_json::json!({}),
@@ -886,8 +893,15 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.emit("request-close", ());
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.emit("request-close", ());
+                } else if window.label() == "dfu-progress" {
+                    let running = window.state::<Arc<AtomicBool>>();
+                    if running.load(Ordering::SeqCst) {
+                        api.prevent_close();
+                    }
+                }
             }
         })
         .run(tauri::generate_context!())

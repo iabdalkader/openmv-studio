@@ -12,14 +12,32 @@
       user-select: none;
     }
     #status {
-      font-size: 12px; color: #aaa; margin-bottom: 10px;
+      font-size: 12px; color: #aaa; margin-bottom: 8px;
       min-height: 18px;
+    }
+    #progress-bar-container {
+      height: 6px; background: #2a2a2a; border-radius: 3px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%; width: 0%; border-radius: 3px;
+      background: #4a9eff;
+      transition: width 0.3s ease;
+    }
+    #progress-bar.indeterminate {
+      width: 30%;
+      animation: indeterminate 1.5s ease-in-out infinite;
+    }
+    @keyframes indeterminate {
+      0% { margin-left: 0%; }
+      50% { margin-left: 70%; }
+      100% { margin-left: 0%; }
     }
     #log {
       flex: 1; overflow-y: auto;
       font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
       font-size: 11px; line-height: 1.6;
-      color: #888; background: #161616;
+      color: #999; background: #161616;
       border-radius: 6px; padding: 8px 10px;
       border: 1px solid #2a2a2a;
     }
@@ -33,38 +51,61 @@
       border: 1px solid #444; background: #2a2a2a;
       color: #ccc; font-size: 12px; cursor: pointer;
     }
-    button:hover { background: #333; }
+    button:hover:not(:disabled) { background: #333; }
     button:disabled { opacity: 0.35; cursor: default; }
   </style>
 </head>
 <body>
-  <div id="status">Please wait...</div>
+  <div id="status">Waiting for device...</div>
+  <div id="progress-bar-container">
+    <div id="progress-bar" class="indeterminate"></div>
+  </div>
   <div id="log"></div>
   <div id="footer">
     <button id="btn-close" disabled>Close</button>
   </div>
-  <script type="module">
-    import { listen } from "https://unpkg.com/@tauri-apps/api@2/event";
-    import { getCurrentWindow } from "https://unpkg.com/@tauri-apps/api@2/window";
+  <script>
+    var listen = window.__TAURI__.event.listen;
+    var appWindow = window.__TAURI__.window.getCurrentWindow();
 
-    const statusEl = document.getElementById("status");
-    const logEl = document.getElementById("log");
-    const btnClose = document.getElementById("btn-close");
+    var statusEl = document.getElementById("status");
+    var logEl = document.getElementById("log");
+    var progressBar = document.getElementById("progress-bar");
+    var btnClose = document.getElementById("btn-close");
+    var done = false;
 
-    listen("dfu-progress", (event) => {
+    listen("dfu-progress", function(event) {
       statusEl.textContent = event.payload;
-      const line = document.createElement("div");
+      var line = document.createElement("div");
       line.textContent = event.payload;
       logEl.appendChild(line);
       logEl.scrollTop = logEl.scrollHeight;
+
+      // Parse dfu-util download progress percentage
+      var match = event.payload.match(/(\d+)%/);
+      if (match) {
+        progressBar.classList.remove("indeterminate");
+        progressBar.style.width = match[1] + "%";
+      }
     });
 
-    listen("dfu-done", () => {
+    listen("dfu-done", function() {
+      done = true;
       btnClose.disabled = false;
+      progressBar.classList.remove("indeterminate");
+      progressBar.style.width = "100%";
     });
 
-    btnClose.addEventListener("click", () => {
-      getCurrentWindow().close();
+    btnClose.addEventListener("click", function() {
+      if (done) {
+        appWindow.close();
+      }
+    });
+
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape" && done) {
+        appWindow.close();
+      }
     });
   </script>
 </body>

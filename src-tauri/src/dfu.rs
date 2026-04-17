@@ -41,7 +41,7 @@ pub fn erase_filesystem(app: &AppHandle, config: &DfuConfig) -> Result<(), Strin
 
         let msg = format!("Running dfu-util ({}/{})...", i + 1, total);
         let _ = app.emit("dfu-progress", &msg);
-        log::info!("dfu-util {:?}", args);
+        log::debug!("dfu-util {:?}", args);
 
         let sidecar = app
             .shell()
@@ -60,12 +60,12 @@ pub fn erase_filesystem(app: &AppHandle, config: &DfuConfig) -> Result<(), Strin
                 match event {
                     CommandEvent::Stdout(line) => {
                         let text = String::from_utf8_lossy(&line);
-                        log::info!("dfu-util: {}", text);
+                        log::debug!("dfu-util: {}", text);
                         let _ = app.emit("dfu-progress", text.as_ref());
                     }
                     CommandEvent::Stderr(line) => {
                         let text = String::from_utf8_lossy(&line);
-                        log::info!("dfu-util: {}", text);
+                        log::debug!("dfu-util: {}", text);
                         let _ = app.emit("dfu-progress", text.as_ref());
                     }
                     CommandEvent::Terminated(payload) => {
@@ -79,14 +79,15 @@ pub fn erase_filesystem(app: &AppHandle, config: &DfuConfig) -> Result<(), Strin
 
         if status != Some(0) {
             let _ = std::fs::remove_file(&temp_path);
-            return Err(format!(
-                "dfu-util exited with status {}",
-                status.unwrap_or(-1)
-            ));
+            let msg = format!("dfu-util exited with status {}", status.unwrap_or(-1));
+            let _ = app.emit("dfu-progress", msg.as_str());
+            let _ = app.emit("dfu-done", ());
+            return Err(msg);
         }
     }
 
     let _ = std::fs::remove_file(&temp_path);
     let _ = app.emit("dfu-progress", "Erase complete.");
+    let _ = app.emit("dfu-done", ());
     Ok(())
 }

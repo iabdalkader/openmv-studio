@@ -61,7 +61,7 @@ import {
   updateChannelUi,
 } from "./panels";
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
-import { ProgressDialog } from "./progress";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 // --- Context menu ---
 
@@ -601,23 +601,32 @@ async function eraseFilesystem() {
     return;
   }
 
-  const progress = new ProgressDialog();
-  progress.show("Erase Filesystem");
-
-  const unlisten = await listen<string>("dfu-progress", (event) => {
-    progress.update(event.payload);
+  const scale = state.uiScale;
+  const win = new WebviewWindow("dfu-progress", {
+    url: "progress.html",
+    title: "Erase Filesystem",
+    width: Math.round(480 * scale),
+    height: Math.round(320 * scale),
+    resizable: true,
+    center: true,
+    parent: "main",
   });
 
   try {
-    await invoke("cmd_erase_filesystem");
-    progress.update("Done.");
+    await new Promise<void>((resolve, reject) => {
+      win.once("tauri://created", () => resolve());
+      win.once("tauri://error", (e) => reject(e));
+    });
   } catch (e: any) {
-    progress.update("Error: " + e);
-    console.error("Erase filesystem failed:", e);
+    console.error("Failed to create progress window:", e);
+    return;
   }
 
-  unlisten();
-  await progress.waitForClose();
+  try {
+    await invoke("cmd_erase_filesystem");
+  } catch (e: any) {
+    console.error("Erase filesystem failed:", e);
+  }
 }
 
 document
