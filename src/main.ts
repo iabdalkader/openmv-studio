@@ -54,11 +54,10 @@ import {
   startChannelsPolling,
   stopChannelsPolling,
   resetChannelsState,
-  clearChannelsCache,
   isChannelsTabActive,
-  handleMemoryData,
-  handleStatsData,
-  handleChannelsData,
+  updateMemUi,
+  updateStatsUi,
+  updateChannelUi,
 } from "./panels";
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
 
@@ -744,23 +743,23 @@ function handleWorkerMessage(raw: ArrayBuffer) {
   tickActivity();
 
   const tag = new Uint8Array(raw)[0];
-  const payload = raw.slice(1);
+  const view = new DataView(raw, 1, raw.byteLength - 1);
 
   switch (tag) {
     case 0x01:
-      handleFrame(payload);
+      handleFrame(view);
       break;
     case 0x02:
-      handleStdout(payload);
+      handleStdout(view);
       break;
     case 0x03:
-      handleMemoryData(payload);
+      handleMemory(view);
       break;
     case 0x04:
-      handleStatsData(payload);
+      handleStats(view);
       break;
     case 0x05:
-      handleChannelsData(payload);
+      handleChannels(view);
       break;
     case 0x10:
       setScriptRunning(false);
@@ -769,17 +768,17 @@ function handleWorkerMessage(raw: ArrayBuffer) {
       handleDisconnected();
       break;
     case 0x13:
-      handleError(payload);
+      handleError(view);
       break;
   }
 }
 
-function handleStdout(raw: ArrayBuffer) {
-  if (raw.byteLength === 0) {
+function handleStdout(view: DataView) {
+  if (view.byteLength === 0) {
     return;
   }
 
-  const text = new TextDecoder().decode(raw);
+  const text = new TextDecoder().decode(view);
   let hasException = false;
   const errorLines: string[] = [];
 
@@ -802,17 +801,16 @@ function handleStdout(raw: ArrayBuffer) {
   }
 }
 
-function handleFrame(raw: ArrayBuffer) {
-  if (raw.byteLength < 16) {
+function handleFrame(view: DataView) {
+  if (view.byteLength < 16) {
     return;
   }
 
-  const view = new DataView(raw);
   const width = view.getUint32(0, true);
   const height = view.getUint32(4, true);
   const format = view.getUint32(8, true);
   const fps = view.getFloat32(12, true);
-  const dataLen = raw.byteLength - 16;
+  const dataLen = view.byteLength - 16;
 
   fbResolution.textContent = `${width}x${height}`;
   fbFormat.textContent =
@@ -832,18 +830,129 @@ function handleFrame(raw: ArrayBuffer) {
     frameBuf = new ArrayBuffer(dataLen);
   }
 
-  new Uint8Array(frameBuf, 0, dataLen).set(new Uint8Array(raw, 16, dataLen));
+  new Uint8Array(frameBuf, 0, dataLen).set(
+    new Uint8Array(view.buffer, view.byteOffset + 16, dataLen),
+  );
   pendingFrame = { format, width, height, dataLen };
   scheduleRender();
+}
+
+// --- Data handlers (binary parsing) ---
+
+const STAT_KEYS = [
+  "sent", "received", "checksum", "sequence",
+  "retransmit", "transport", "sent_events", "max_ack_queue_depth",
+];
+
+function handleMemory(view: DataView) {
+  if (view.byteLength < 4) {
+    return;
+  }
+
+  const count = view.getUint8(0);
+  const entries: any[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const o = 4 + i * 24;
+
+    if (o + 24 > view.byteLength) {
+      break;
+    }
+
+    entries.push({
+      mem_type: view.getUint8(o) === 0 ? "gc" : "uma",
+      flags: view.getUint16(o + 2, true),
+      total: view.getUint32(o + 4, true),
+      used: view.getUint32(o + 8, true),
+      free: view.getUint32(o + 12, true),
+      persist: view.getUint32(o + 16, true),
+      peak: view.getUint32(o + 20, true),
+    });
+  }
+
+  updateMemUi(entries);
+}
+
+function handleStats(view: DataView) {
+  if (view.byteLength < 36) {
+    return;
+  }
+
+  const stats: Record<string, number> = {};
+
+  for (let i = 0; i < STAT_KEYS.length; i++) {
+    stats[STAT_KEYS[i]] = view.getUint32(i * 4, true);
+  }
+
+  const chCount = view.getUint8(32);
+  const channels: { name: string; id: number; events: number }[] = [];
+  const dynamic: { name: string; id: number }[] = [];
+
+  for (let i = 0; i < chCount; i++) {
+    const o = 36 + i * 20;
+
+    if (o + 20 > view.byteLength) {
+      break;
+    }
+
+    const id = view.getUint8(o);
+    const flags = view.getUint8(o + 1);
+    const nameBytes = new Uint8Array(view.buffer, view.byteOffset + o + 2, 14);
+    let nameLen = 0;
+
+    while (nameLen < 14 && nameBytes[nameLen] !== 0) {
+      nameLen++;
+    }
+
+    const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
+    const events = view.getUint32(o + 16, true);
+
+    channels.push({ name, id, events });
+
+    if (flags & 0x20) {
+      dynamic.push({ name, id });
+    }
+  }
+
+  updateStatsUi(stats, channels, dynamic);
+}
+
+function handleChannels(view: DataView) {
+  if (view.byteLength < 2) {
+    return;
+  }
+
+  let offset = 0;
+  const nameLen = view.getUint8(offset);
+
+  offset += 1;
+  const name = new TextDecoder().decode(
+    new Uint8Array(view.buffer, view.byteOffset + offset, nameLen),
+  );
+
+  offset += nameLen;
+
+  if (offset + 4 > view.byteLength) {
+    return;
+  }
+
+  const dataLen = view.getUint32(offset, true);
+
+  offset += 4;
+  const data = Array.from(
+    new Uint8Array(view.buffer, view.byteOffset + offset, dataLen),
+  );
+
+  updateChannelUi(name, data);
 }
 
 function handleDisconnected() {
   doDisconnect();
 }
 
-function handleError(raw: ArrayBuffer) {
-  if (raw.byteLength > 0) {
-    const msg = new TextDecoder().decode(raw);
+function handleError(view: DataView) {
+  if (view.byteLength > 0) {
+    const msg = new TextDecoder().decode(view);
 
     console.error("Worker error:", msg);
   }

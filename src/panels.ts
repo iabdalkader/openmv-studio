@@ -140,37 +140,6 @@ let memPeak: Map<string, number> = new Map();
 let memPollTimer: number | null = null;
 let memPollInterval = 500;
 
-export function handleMemoryData(raw: ArrayBuffer) {
-  const content = document.getElementById("memory-content");
-
-  if (!content || !state.isConnected || raw.byteLength < 4) {
-    return;
-  }
-
-  const view = new DataView(raw);
-  const count = view.getUint8(0);
-  const entries: any[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const o = 4 + i * 24;
-
-    if (o + 24 > raw.byteLength) {
-      break;
-    }
-
-    const memType = view.getUint8(o) === 0 ? "gc" : "uma";
-    const flags = view.getUint16(o + 2, true);
-    const total = view.getUint32(o + 4, true);
-    const used = view.getUint32(o + 8, true);
-    const free = view.getUint32(o + 12, true);
-    const persist = view.getUint32(o + 16, true);
-    const peak = view.getUint32(o + 20, true);
-
-    entries.push({ mem_type: memType, flags, total, used, free, persist, peak });
-  }
-
-  updateMemUi(content, entries);
-}
 
 export function startMemPolling(delay = 0) {
   stopMemPolling();
@@ -213,7 +182,13 @@ export function resetMemState() {
   }
 }
 
-function updateMemUi(content: HTMLElement, entries: any[]) {
+export function updateMemUi(entries: any[]) {
+  const content = document.getElementById("memory-content");
+
+  if (!content || !state.isConnected) {
+    return;
+  }
+
   const existing = content.querySelectorAll(".mem-card");
 
   if (existing.length !== entries.length) {
@@ -479,80 +454,44 @@ function formatBytes(bytes: number): string {
 
 // --- Protocol stats ---
 
-const PROTO_STAT_KEYS = [
-  "sent", "received", "checksum", "sequence",
-  "retransmit", "transport", "sent_events", "max_ack_queue_depth",
-];
-
-const PROTO_STAT_LABELS = [
-  "Sent", "Received", "Checksum Errors", "Sequence Errors",
-  "Retransmits", "Transport Errors", "Events Sent", "Max ACK Queue",
-];
+const STAT_LABELS: Record<string, string> = {
+  sent: "Sent",
+  received: "Received",
+  checksum: "Checksum Errors",
+  sequence: "Sequence Errors",
+  retransmit: "Retransmits",
+  transport: "Transport Errors",
+  sent_events: "Events Sent",
+  max_ack_queue_depth: "Max ACK Queue",
+};
 
 let protoPollTimer: number | null = null;
 let protoPollInterval = 500;
 let protoBuilt = false;
 let protoChannelCount = 0;
 
-export function handleStatsData(raw: ArrayBuffer) {
+export function updateStatsUi(
+  stats: Record<string, number>,
+  channels: { name: string; id: number; events: number }[],
+  dynamic: { name: string; id: number }[],
+) {
+  dynamicChannels = dynamic;
+
   const content = document.getElementById("proto-content");
 
-  if (!content || !state.isConnected || raw.byteLength < 36) {
+  if (!content || !state.isConnected) {
     return;
   }
 
-  const view = new DataView(raw);
-
-  // Parse 8 x u32 stat fields
-  const stats: Record<string, number> = {};
-
-  for (let i = 0; i < PROTO_STAT_KEYS.length; i++) {
-    stats[PROTO_STAT_KEYS[i]] = view.getUint32(i * 4, true);
-  }
-
-  // Parse channel list at offset 32
-  const chCount = view.getUint8(32);
-  const channels: { name: string; id: number; events: number }[] = [];
-  const dynamic: { name: string; id: number }[] = [];
-
-  for (let i = 0; i < chCount; i++) {
-    const o = 36 + i * 20;
-
-    if (o + 20 > raw.byteLength) {
-      break;
-    }
-
-    const id = view.getUint8(o);
-    const flags = view.getUint8(o + 1);
-    // name is 14 bytes at o+2, null-padded
-    const nameBytes = new Uint8Array(raw, o + 2, 14);
-    let nameLen = 0;
-
-    while (nameLen < 14 && nameBytes[nameLen] !== 0) {
-      nameLen++;
-    }
-
-    const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
-    const events = view.getUint32(o + 16, true);
-
-    channels.push({ name, id, events });
-
-    if (flags & 0x20) {
-      dynamic.push({ name, id });
-    }
-  }
-
-  dynamicChannels = dynamic;
-
   if (!protoBuilt || channels.length !== protoChannelCount) {
-    buildProtoDom(content, channels);
+    buildProtoDom(content, stats, channels);
   }
 
-  for (const key of PROTO_STAT_KEYS) {
+  for (const [key, value] of Object.entries(stats)) {
     const el = document.getElementById(`proto-${key}`);
 
     if (el) {
-      el.textContent = String(stats[key]);
+      el.textContent = String(value);
     }
   }
 
@@ -595,12 +534,14 @@ export function resetProtoState() {
 
 function buildProtoDom(
   content: HTMLElement,
+  stats: Record<string, number>,
   channels: { name: string; id: number; events: number }[],
 ) {
   let html = '<div class="proto-section-label">Statistics</div>';
 
-  for (let i = 0; i < PROTO_STAT_LABELS.length; i++) {
-    html += `<div class="proto-row"><span>${PROTO_STAT_LABELS[i]}</span><span id="proto-${PROTO_STAT_KEYS[i]}">0</span></div>`;
+  for (const key of Object.keys(stats)) {
+    const label = STAT_LABELS[key] || key;
+    html += `<div class="proto-row"><span>${label}</span><span id="proto-${key}">0</span></div>`;
   }
 
   html += '<div class="proto-section-label">Channels</div>';
@@ -638,36 +579,15 @@ let chPollInterval = 500;
 let dynamicChannels: { name: string; id: number }[] = [];
 let channelCache: Map<string, number[]> = new Map();
 
-export function handleChannelsData(raw: ArrayBuffer) {
-  const content = document.getElementById("channels-content");
-
-  if (!content || !state.isConnected || raw.byteLength < 2) {
-    return;
-  }
-
-  // Single-channel format: [name_len, name, data_len, data]
-  const view = new DataView(raw);
-  let offset = 0;
-
-  const nameLen = view.getUint8(offset);
-
-  offset += 1;
-  const name = new TextDecoder().decode(new Uint8Array(raw, offset, nameLen));
-
-  offset += nameLen;
-
-  if (offset + 4 > raw.byteLength) {
-    return;
-  }
-
-  const dataLen = view.getUint32(offset, true);
-
-  offset += 4;
-  const data = Array.from(new Uint8Array(raw, offset, dataLen));
-
+export function updateChannelUi(name: string, data: number[]) {
   channelCache.set(name, data);
 
-  // Re-render from cache
+  const content = document.getElementById("channels-content");
+
+  if (!content || !state.isConnected) {
+    return;
+  }
+
   const channels = Array.from(channelCache.entries()).map(([n, d]) => ({
     name: n,
     data: d,
