@@ -9,8 +9,10 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
+    "@types/three": "^0.184.0",
     "typescript": "~5.9.3",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vite-plugin-static-copy": "^4.0.1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -21,6 +23,7 @@
     "@typefox/pyright-browser": "^1.1.299",
     "cbor-x": "^1.6.4",
     "monaco-editor": "^0.55.1",
+    "three": "^0.184.0",
     "vscode-jsonrpc": "^8.2.1"
   }
 }

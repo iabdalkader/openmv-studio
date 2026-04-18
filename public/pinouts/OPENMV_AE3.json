@@ -1,0 +1,472 @@
+{
+  "pins": {
+    "Pin_1": {
+      "name": "Pin 1",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 1"
+    },
+    "Pin_2": {
+      "name": "Pin 2",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 2"
+    },
+    "Pin_3": {
+      "name": "Pin 3",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 3"
+    },
+    "Pin_4": {
+      "name": "Pin 4",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 4"
+    },
+    "Pin_5": {
+      "name": "Pin 5",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 5"
+    },
+    "Pin_6": {
+      "name": "Pin 6",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 6"
+    },
+    "Pin_7": {
+      "name": "Pin 7",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 7"
+    },
+    "Pin_8": {
+      "name": "Pin 8",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 8"
+    },
+    "Pin_9": {
+      "name": "Pin 9",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 9"
+    },
+    "Pin_10": {
+      "name": "Pin 10",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 10"
+    },
+    "Pin_11": {
+      "name": "Pin 11",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 11"
+    },
+    "Pin_12": {
+      "name": "Pin 12",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 12"
+    },
+    "Pin_13": {
+      "name": "Pin 13",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 13"
+    },
+    "Pin_14": {
+      "name": "Pin 14",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 14"
+    },
+    "Pin_15": {
+      "name": "Pin 15",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 15"
+    },
+    "Pin_16": {
+      "name": "Pin 16",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 16"
+    },
+    "Pin_17": {
+      "name": "Pin 17",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 17"
+    },
+    "Pin_18": {
+      "name": "Pin 18",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 18"
+    },
+    "Pin_19": {
+      "name": "Pin 19",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 19"
+    },
+    "Pin_20": {
+      "name": "Pin 20",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 20"
+    },
+    "Pin_21": {
+      "name": "Pin 21",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 21"
+    },
+    "Pin_22": {
+      "name": "Pin 22",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 22"
+    },
+    "Pin_23": {
+      "name": "Pin 23",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 23"
+    },
+    "Pin_24": {
+      "name": "Pin 24",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 24"
+    },
+    "Pin_25": {
+      "name": "Pin 25",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 25"
+    },
+    "Pin_26": {
+      "name": "Pin 26",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 26"
+    },
+    "Pin_27": {
+      "name": "Pin 27",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 27"
+    },
+    "Pin_28": {
+      "name": "Pin 28",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 28"
+    },
+    "Pin_29": {
+      "name": "Pin 29",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 29"
+    },
+    "Pin_30": {
+      "name": "Pin 30",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 30"
+    },
+    "Pin_31": {
+      "name": "Pin 31",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 31"
+    },
+    "Pin_32": {
+      "name": "Pin 32",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 32"
+    },
+    "Pin_33": {
+      "name": "Pin 33",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 33"
+    },
+    "Pin_34": {
+      "name": "Pin 34",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 34"
+    },
+    "Pin_35": {
+      "name": "Pin 35",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 35"
+    },
+    "Pin_36": {
+      "name": "Pin 36",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 36"
+    },
+    "Pin_37": {
+      "name": "Pin 37",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 37"
+    },
+    "Pin_38": {
+      "name": "Pin 38",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 38"
+    },
+    "Pin_39": {
+      "name": "Pin 39",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 39"
+    },
+    "Pin_40": {
+      "name": "Pin 40",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 40"
+    },
+    "Pin_41": {
+      "name": "Pin 41",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 41"
+    },
+    "Pin_42": {
+      "name": "Pin 42",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 42"
+    },
+    "Pin_43": {
+      "name": "Pin 43",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 43"
+    },
+    "Pin_44": {
+      "name": "Pin 44",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 44"
+    },
+    "Pin_45": {
+      "name": "Pin 45",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 45"
+    },
+    "Pin_46": {
+      "name": "Pin 46",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 46"
+    },
+    "Pin_47": {
+      "name": "Pin 47",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 47"
+    },
+    "Pin_48": {
+      "name": "Pin 48",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 48"
+    },
+    "Pin_49": {
+      "name": "Pin 49",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 49"
+    },
+    "Pin_50": {
+      "name": "Pin 50",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 50"
+    },
+    "Pin_51": {
+      "name": "Pin 51",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 51"
+    },
+    "Pin_52": {
+      "name": "Pin 52",
+      "gpio": null,
+      "voltage": "3.3V",
+      "functions": [
+        "GPIO"
+      ],
+      "description": "Pin 52"
+    }
+  }
+}

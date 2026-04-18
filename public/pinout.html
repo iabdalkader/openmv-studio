@@ -188,8 +188,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/"
+      "three": "/libs/three/build/three.module.js",
+      "three/addons/": "/libs/three/examples/jsm/"
     }
   }
   </script>
@@ -235,6 +235,7 @@
     import * as THREE from "three";
     import { TrackballControls } from "three/addons/controls/TrackballControls.js";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 
     var listen = window.__TAURI__.event.listen;
     var emit = window.__TAURI__.event.emit;
@@ -322,7 +323,10 @@
     animate();
 
     // --- Model loading ---
+    var dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath("/libs/draco/");
     var loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
 
     function clearModel() {
       if (currentModel) {
