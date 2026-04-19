@@ -411,27 +411,44 @@ async function doConnect() {
   connectInProgress = true;
 
   try {
-    let port = state.serialPort;
-
-    if (!port) {
-      const ports = await invoke<string[]>("cmd_list_ports");
-
-      if (ports.length === 0) {
-        termLog("No serial ports found.", "error-line");
-        return;
-      }
-
-      port = ports[0];
-    }
-
     // Create worker channel for all backend data
     workerChannel = new Channel<ArrayBuffer>();
     workerChannel.onmessage = handleWorkerMessage;
 
+    let connLabel: string;
+
+    if (state.transportType === "tcp") {
+      if (!state.networkAddress) {
+        termLog(
+          "Network address not configured. Set it in Settings > Connection.",
+          "error-line",
+        );
+        return;
+      }
+
+      connLabel = state.networkAddress;
+    } else {
+      let port = state.serialPort;
+
+      if (!port) {
+        const ports = await invoke<string[]>("cmd_list_ports");
+
+        if (ports.length === 0) {
+          termLog("No serial ports found.", "error-line");
+          return;
+        }
+
+        port = ports[0];
+      }
+
+      connLabel = port;
+    }
+
     await invoke("cmd_connect", {
-      port,
+      address: connLabel,
+      transport: state.transportType,
       channel: workerChannel,
-      pollIntervalMs: state.pollIntervalMs,
+      ioIntervalMs: state.ioIntervalMs,
     });
 
     const sysinfo = await invoke<any>("cmd_get_sysinfo");
@@ -440,9 +457,9 @@ async function doConnect() {
 
     state.connectedBoard = sysinfo.board_type;
     state.connectedSensor = null;
-    setConnected(true, `${sysinfo.board_name} | ${port} | v${fw}`);
+    setConnected(true, `${sysinfo.board_name} | ${connLabel} | v${fw}`);
     populateSensorSelect(sysinfo.sensors || []);
-    populateInfoTab(sysinfo, version, port);
+    populateInfoTab(sysinfo, version, connLabel);
 
     try {
       await invoke("cmd_stop_script");
@@ -485,9 +502,6 @@ async function doDisconnect() {
   resetProtoState();
   resetChannelsState();
 
-  try {
-    await invoke("cmd_stop_script");
-  } catch {}
   try {
     await invoke("cmd_disconnect");
   } catch {}

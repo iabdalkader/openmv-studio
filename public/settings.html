@@ -248,18 +248,37 @@
 
   <div class="settings-pane" data-stab="connection" style="display:none">
     <div class="pref-row">
-      <span class="pref-label">Auto-detect Port</span>
-      <label class="switch"><input type="checkbox" id="set-serial-auto" checked><span class="switch-slider"></span></label>
+      <span class="pref-label">Transport</span>
+      <div style="display:flex;gap:12px">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="transport" value="serial" checked> Serial
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="transport" value="tcp"> Network
+        </label>
+      </div>
     </div>
-    <div class="pref-row" id="serial-port-row" style="display:none">
-      <span class="pref-label">Serial Port</span>
-      <select class="pref-input" id="set-serial-port" style="width:200px"></select>
+    <div id="serial-settings">
+      <div class="pref-row">
+        <span class="pref-label">Auto-detect Port</span>
+        <label class="switch"><input type="checkbox" id="set-serial-auto" checked><span class="switch-slider"></span></label>
+      </div>
+      <div class="pref-row" id="serial-port-row" style="display:none">
+        <span class="pref-label">Serial Port</span>
+        <select class="pref-input" id="set-serial-port" style="width:200px"></select>
+      </div>
+    </div>
+    <div id="network-settings" style="display:none">
+      <div class="pref-row">
+        <span class="pref-label">Address</span>
+        <input type="text" class="pref-input" id="set-network-addr" placeholder="openmv.local:5555" style="width:200px">
+      </div>
     </div>
     <div class="pref-row">
-      <span class="pref-label">Poll Rate</span>
+      <span class="pref-label">I/O Interval</span>
       <div class="scale-control">
-        <input type="range" id="set-poll-rate" min="10" max="200" step="10" value="50">
-        <span class="scale-value" id="poll-rate-label">50 ms</span>
+        <input type="range" id="set-io-interval" min="10" max="100" step="10" value="10">
+        <span class="scale-value" id="io-interval-label">10 ms</span>
       </div>
     </div>
   </div>
@@ -341,7 +360,18 @@
       document.getElementById("set-minimap").checked = d.minimap;
       document.getElementById("set-line-numbers").checked = d.lineNumbers;
 
-      // Connection
+      // Connection - transport type
+      var transportType = d.transportType || "serial";
+      document.querySelectorAll('input[name="transport"]').forEach(function(r) {
+        r.checked = (r.value === transportType);
+      });
+      document.getElementById("serial-settings").style.display = transportType === "serial" ? "" : "none";
+      document.getElementById("network-settings").style.display = transportType !== "serial" ? "" : "none";
+
+      // Network address
+      document.getElementById("set-network-addr").value = d.networkAddress || "";
+
+      // Serial auto-detect
       var serialAuto = document.getElementById("set-serial-auto");
       var serialRow = document.getElementById("serial-port-row");
       if (d.serialPort) {
@@ -352,11 +382,11 @@
         serialRow.style.display = "none";
       }
 
-      // Poll rate
-      var pollSlider = document.getElementById("set-poll-rate");
-      var pollLabel = document.getElementById("poll-rate-label");
-      pollSlider.value = d.pollIntervalMs;
-      pollLabel.textContent = d.pollIntervalMs + " ms";
+      // I/O interval
+      var ioSlider = document.getElementById("set-io-interval");
+      var ioLabel = document.getElementById("io-interval-label");
+      ioSlider.value = d.ioIntervalMs;
+      ioLabel.textContent = d.ioIntervalMs + " ms";
 
       // Shortcuts
       shortcuts = d.shortcuts || [];
@@ -432,6 +462,21 @@
       changed("lineNumbers", this.checked);
     };
 
+    // Transport type
+    document.querySelectorAll('input[name="transport"]').forEach(function(radio) {
+      radio.addEventListener("change", function() {
+        var val = radio.value;
+        document.getElementById("serial-settings").style.display = val === "serial" ? "" : "none";
+        document.getElementById("network-settings").style.display = val !== "serial" ? "" : "none";
+        changed("transportType", val);
+      });
+    });
+
+    // Network address
+    document.getElementById("set-network-addr").onchange = function() {
+      changed("networkAddress", this.value);
+    };
+
     // Serial auto-detect
     document.getElementById("set-serial-auto").onchange = function() {
       var row = document.getElementById("serial-port-row");
@@ -450,14 +495,14 @@
       changed("serialPort", this.value);
     };
 
-    // Poll rate
-    var pollSlider = document.getElementById("set-poll-rate");
-    var pollLabel = document.getElementById("poll-rate-label");
-    pollSlider.oninput = function() {
-      pollLabel.textContent = pollSlider.value + " ms";
+    // I/O interval
+    var ioSlider = document.getElementById("set-io-interval");
+    var ioLabel = document.getElementById("io-interval-label");
+    ioSlider.oninput = function() {
+      ioLabel.textContent = ioSlider.value + " ms";
     };
-    pollSlider.onchange = function() {
-      changed("pollIntervalMs", parseInt(pollSlider.value));
+    ioSlider.onchange = function() {
+      changed("ioIntervalMs", parseInt(ioSlider.value));
     };
 
     // Reset all

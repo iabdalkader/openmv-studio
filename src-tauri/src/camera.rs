@@ -104,16 +104,9 @@ impl Camera {
         self.transport.as_ref().is_some_and(|t| t.is_connected())
     }
 
-    pub fn connect(&mut self, port: &str, baudrate: u32) -> Result<(), TransportError> {
+    pub fn connect(&mut self, address: &str, transport: &str) -> Result<(), TransportError> {
         self.disconnect();
-        self.transport = Some(Transport::new(
-            port,
-            baudrate,
-            true,
-            true,
-            MIN_PAYLOAD_SIZE,
-            Duration::from_secs(1),
-        )?);
+        self.transport = Some(Transport::new(address, transport, MIN_PAYLOAD_SIZE)?);
         self.resync()?;
         self.update_channels()?;
         self.cache_info();
@@ -136,7 +129,7 @@ impl Camera {
     fn resync(&mut self) -> Result<(), TransportError> {
         let t = self.transport()?;
         t.open()?;
-        t.update_caps(true, true, MIN_PAYLOAD_SIZE);
+        t.reset_caps();
         t.reset_sequence();
 
         for attempt in 0..3 {
@@ -205,14 +198,24 @@ impl Camera {
             .max_payload
             .min(u16::from_le_bytes([p[4], p[5]]) as usize);
 
-        let flags: u32 = 1 | (1 << 1) | (1 << 2) | (1 << 3); // crc + seq + ack + events
+        let t = self.transport()?;
+        let crc = t.crc_enabled();
+        let seq = t.seq_enabled();
+        let mut flags: u32 = 1 << 3; // events always on
+        if crc {
+            flags |= 1;
+        }
+        if seq {
+            flags |= 1 << 1;
+            flags |= 1 << 2; // ack requires seq
+        }
         let mut buf = vec![0u8; 16];
         buf[0..4].copy_from_slice(&flags.to_le_bytes());
         buf[4..6].copy_from_slice(&(self.max_payload as u16).to_le_bytes());
         self.send_cmd(Opcode::ProtoSetCaps, 0, Some(&buf), false)?;
 
         let mp = self.max_payload;
-        self.transport()?.update_caps(true, true, mp);
+        self.transport()?.update_caps(crc, seq, mp);
         Ok(())
     }
 
@@ -576,7 +579,7 @@ impl Camera {
     }
 
     // -- Worker loop --
-    pub fn run(&mut self, rx: mpsc::Receiver<Command>, tx: &Channel, poll_interval: Duration) {
+    pub fn run(&mut self, rx: mpsc::Receiver<Command>, tx: &Channel, io_interval: Duration) {
         loop {
             while let Ok(send_cmd) = rx.try_recv() {
                 self.enqueue(send_cmd);
@@ -589,15 +592,19 @@ impl Camera {
                 }
                 self.process_cmd(send_cmd, tx);
             } else {
-                self.poll_events(poll_interval);
+                // No commands to process - poll events.
+                self.transport().and_then(|t| t.recv_packet(Some(Duration::from_millis(1))));
             }
 
+            // Process collected events during command/events polling.
             self.process_events(tx);
 
             if !self.is_connected() {
                 let _ = tx.send(InvokeResponseBody::Raw(vec![TAG_DISCONNECTED]));
                 break;
             }
+
+            std::thread::sleep(io_interval);
         }
     }
 
@@ -643,20 +650,6 @@ impl Camera {
             let mut buf = vec![TAG_ERROR];
             buf.extend_from_slice(e.to_string().as_bytes());
             let _ = tx.send(InvokeResponseBody::Raw(buf));
-        }
-    }
-
-    fn poll_events(&mut self, timeout: Duration) {
-        let t = match self.transport.as_mut() {
-            Some(t) => t,
-            None => return,
-        };
-
-        // recv_packet buffers events internally; we just need to trigger a
-        // receive attempt so the transport has a chance to collect them.
-        match t.recv_packet(Some(timeout)) {
-            Ok(_) => {} // unexpected non-event, drop it
-            Err(e) => {}
         }
     }
 

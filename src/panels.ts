@@ -470,6 +470,8 @@ let protoPollTimer: number | null = null;
 let protoPollInterval = 500;
 let protoBuilt = false;
 let protoChannelCount = 0;
+let lastPollTime = 0;
+let lastChannelEvents: Record<number, number> = {};
 
 export function updateStatsUi(
   stats: Record<string, number>,
@@ -486,7 +488,12 @@ export function updateStatsUi(
 
   if (!protoBuilt || channels.length !== protoChannelCount) {
     buildProtoDom(content, stats, channels);
+    lastPollTime = 0;
+    lastChannelEvents = {};
   }
+
+  const now = performance.now();
+  const dt = lastPollTime > 0 ? (now - lastPollTime) / 1000 : 0;
 
   for (const [key, value] of Object.entries(stats)) {
     const el = document.getElementById(`proto-${key}`);
@@ -497,12 +504,23 @@ export function updateStatsUi(
   }
 
   for (const ch of channels) {
-    const el = document.getElementById(`proto-ch-${ch.id}`);
+    const countEl = document.getElementById(`proto-ch-${ch.id}`);
+    const rateEl = document.getElementById(`proto-chrate-${ch.id}`);
 
-    if (el) {
-      el.textContent = String(ch.events);
+    if (countEl) {
+      countEl.textContent = String(ch.events);
     }
+
+    if (rateEl && dt > 0 && ch.id in lastChannelEvents) {
+      const delta = ch.events - lastChannelEvents[ch.id];
+      const rate = Math.round(delta / dt);
+      rateEl.textContent = `${rate}/s`;
+    }
+
+    lastChannelEvents[ch.id] = ch.events;
   }
+
+  lastPollTime = now;
 }
 
 export function startProtoPolling() {
@@ -524,6 +542,8 @@ export function stopProtoPolling() {
 export function resetProtoState() {
   protoBuilt = false;
   protoChannelCount = 0;
+  lastPollTime = 0;
+  lastChannelEvents = {};
 
   const content = document.getElementById("proto-content");
 
@@ -549,7 +569,7 @@ function buildProtoDom(
 
   channels.sort((a, b) => a.id - b.id);
   for (const ch of channels) {
-    html += `<div class="proto-row"><span>${ch.name}</span><span id="proto-ch-${ch.id}">${ch.events}</span></div>`;
+    html += `<div class="proto-row"><span>${ch.name} events</span><span class="proto-ch-val"><span id="proto-ch-${ch.id}">${ch.events}</span><span id="proto-chrate-${ch.id}" class="proto-rate"></span></span></div>`;
   }
 
   content.innerHTML = html;
@@ -626,6 +646,11 @@ export function stopChannelsPolling() {
 export function clearChannelsCache() {
   dynamicChannels = [];
   channelCache.clear();
+
+  const content = document.getElementById("channels-content");
+  if (content) {
+    content.innerHTML = "";
+  }
 }
 
 export function resetChannelsState() {

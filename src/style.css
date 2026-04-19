@@ -581,6 +581,8 @@ input[type="range"]::-webkit-slider-thumb {
 .proto-row:last-child { border-bottom: none; }
 .proto-row span:first-child { color: var(--text-tertiary); }
 .proto-row span:last-child { color: var(--text-secondary); font-family: var(--font-code); font-weight: 500; }
+.proto-ch-val { display: inline-flex; gap: 8px; }
+.proto-rate { min-width: 48px; text-align: right; color: var(--text-tertiary); font-size: 10px; }
 
 /* Channels panel */
 .ch-poll-control {

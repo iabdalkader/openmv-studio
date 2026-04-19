@@ -123,12 +123,13 @@ fn cmd_list_ports(all: Option<bool>, state: State<Arc<Mutex<AppState>>>) -> Vec<
 
 #[tauri::command]
 fn cmd_connect(
-    port: String,
+    address: String,
+    transport: String,
     channel: Channel,
-    poll_interval_ms: u64,
+    io_interval_ms: u64,
     state: State<Arc<Mutex<AppState>>>,
 ) -> Result<(), String> {
-    log::info!("Connecting to {}", port);
+    log::info!("Connecting to {} via {}", address, transport);
 
     // Stop existing worker
     {
@@ -143,9 +144,9 @@ fn cmd_connect(
         }
     }
 
-    // Connect synchronously (no lock held -- serial I/O can block)
+    // Connect (no lock held -- I/O can block)
     let mut camera = Camera::new();
-    camera.connect(&port, 921600).map_err(|e| {
+    camera.connect(&address, &transport).map_err(|e| {
         log::error!("Connect failed: {}", e);
         e.to_string()
     })?;
@@ -156,7 +157,7 @@ fn cmd_connect(
     st.verinfo = camera.verinfo.clone();
 
     let (tx, rx) = mpsc::channel();
-    let interval = Duration::from_millis(poll_interval_ms);
+    let interval = Duration::from_millis(io_interval_ms);
 
     let handle = std::thread::spawn(move || {
         camera.run(rx, &channel, interval);
@@ -165,7 +166,7 @@ fn cmd_connect(
     st.cmd_tx = Some(tx);
     st.worker_thread = Some(handle);
 
-    log::info!("Connected to {}", port);
+    log::info!("Connected to {} via {}", address, transport);
     Ok(())
 }
 

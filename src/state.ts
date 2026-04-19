@@ -9,12 +9,14 @@ export const state = {
   connectedBoard: null as string | null,
   connectedSensor: null as string | null,
   uiScale: 1.2,
-  pollIntervalMs: 50,
+  ioIntervalMs: 10,
   filterExamples: true,
   canvasVisible: false,
   splitLocked: false,
   currentThemeSetting: "dark" as ThemeSetting,
   serialPort: "" as string,
+  transportType: "serial" as "serial" | "tcp",
+  networkAddress: "openmv.local:5555" as string,
 };
 
 // Callback slot -- settings.ts fills this during init.

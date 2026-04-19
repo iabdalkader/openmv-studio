@@ -90,9 +90,11 @@ export async function saveSettings() {
       gridCols: layoutEl.style.gridTemplateColumns || "",
       gridRows: mainArea.style.gridTemplateRows || "",
       toolsPct: toolsPct,
-      pollInterval: state.pollIntervalMs,
+      ioInterval: state.ioIntervalMs,
       filterExamples: state.filterExamples,
       splitLocked: state.splitLocked,
+      transportType: state.transportType,
+      networkAddress: state.networkAddress,
     });
 
     await s.set("editor", {
@@ -131,9 +133,11 @@ export async function loadSettings() {
       fbRatio?: number; // legacy
       toolsHeight?: number; // legacy
       toolsPct?: number;
-      pollInterval?: number;
+      ioInterval?: number;
       filterExamples?: boolean;
       splitLocked?: boolean;
+      transportType?: "serial" | "tcp";
+      networkAddress?: string;
     }>("ui");
 
     if (ui?.scale) {
@@ -144,8 +148,8 @@ export async function loadSettings() {
       state.currentThemeSetting = ui.theme;
     }
 
-    if (ui?.pollInterval) {
-      state.pollIntervalMs = ui.pollInterval;
+    if (ui?.ioInterval) {
+      state.ioIntervalMs = ui.ioInterval;
     }
 
     if (ui?.filterExamples !== undefined) {
@@ -155,6 +159,14 @@ export async function loadSettings() {
     if (ui?.splitLocked) {
       state.splitLocked = true;
       document.getElementById("btn-lock-split")?.classList.add("active");
+    }
+
+    if (ui?.transportType) {
+      state.transportType = ui.transportType;
+    }
+
+    if (ui?.networkAddress) {
+      state.networkAddress = ui.networkAddress;
     }
 
     if (ui?.gridCols) {
@@ -301,8 +313,10 @@ export async function openSettings() {
     theme: state.currentThemeSetting,
     resolvedTheme: document.documentElement.getAttribute("data-theme") || "dark",
     filterExamples: state.filterExamples,
+    transportType: state.transportType,
+    networkAddress: state.networkAddress,
     serialPort: state.serialPort,
-    pollIntervalMs: state.pollIntervalMs,
+    ioIntervalMs: state.ioIntervalMs,
     fontSize: edOpts.get(monaco.editor.EditorOption.fontSize),
     tabSize: edOpts.get(monaco.editor.EditorOption.tabSize),
     wordWrap: edOpts.get(monaco.editor.EditorOption.wordWrap) !== 0,
@@ -366,11 +380,19 @@ export async function openSettings() {
         editor.updateOptions({ lineNumbers: value ? "on" : "off" });
         scheduleSaveSettings();
         break;
+      case "transportType":
+        state.transportType = value;
+        scheduleSaveSettings();
+        break;
+      case "networkAddress":
+        state.networkAddress = value;
+        scheduleSaveSettings();
+        break;
       case "serialPort":
         state.serialPort = value;
         break;
-      case "pollIntervalMs":
-        state.pollIntervalMs = value;
+      case "ioIntervalMs":
+        state.ioIntervalMs = value;
         scheduleSaveSettings();
         break;
       case "shortcutSet":
@@ -407,8 +429,10 @@ async function resetAllSettings() {
 
   state.uiScale = 1.2;
   state.currentThemeSetting = "dark";
-  state.pollIntervalMs = 50;
+  state.ioIntervalMs = 10;
   state.splitLocked = false;
+  state.transportType = "serial";
+  state.networkAddress = "";
   document.getElementById("btn-lock-split")?.classList.remove("active");
   setShortcutOverrides({});
 
