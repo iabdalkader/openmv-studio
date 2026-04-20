@@ -604,7 +604,9 @@ impl Camera {
                 break;
             }
 
-            std::thread::sleep(io_interval);
+            if self.queue.is_empty() {
+                std::thread::sleep(io_interval);
+            }
         }
     }
 
