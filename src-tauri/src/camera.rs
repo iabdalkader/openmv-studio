@@ -582,7 +582,7 @@ impl Camera {
                 self.process_cmd(send_cmd, tx);
             } else {
                 // No commands to process - poll events.
-                self.transport().and_then(|t| t.recv_packet(Some(Duration::from_millis(1))));
+                let _ = self.transport().and_then(|t| t.recv_packet(Some(Duration::from_millis(1))));
             }
 
             // Process collected events during command/events polling.

@@ -32,20 +32,10 @@ struct AppState {
 }
 
 fn resolve_resource(app: &tauri::AppHandle, name: &str) -> std::path::PathBuf {
-    let res_dir = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|p| p.join("resources").join(name));
-    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("resources")
-        .join(name);
-    match res_dir {
-        Some(ref p) if p.exists() => p.clone(),
-        _ => dev_path,
-    }
+    let path = format!("resources/{}", name);
+    app.path()
+        .resolve(&path, tauri::path::BaseDirectory::Resource)
+        .unwrap_or_else(|_| std::path::PathBuf::from(&path))
 }
 
 fn parse_hex16(s: &str) -> u16 {
