@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // Application theme system -- dark, light, and system (auto-detect).
 // Defines color schemes for both the Monaco editor and the CSS UI.
 

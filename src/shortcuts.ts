@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // Keyboard shortcut system with rebindable keys.
 // Handles parsing, matching, and dispatching of key combos.
 // Shortcuts are recorded via the settings dialog and persisted.

@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // File management, tab bar, open/close/save.
 // Each open file has a Monaco editor model and tracked modification state.
 

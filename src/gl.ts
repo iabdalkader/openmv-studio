@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // WebGL fullscreen-quad renderer for camera framebuffer display.
 // Uploads raw pixel data (RGB565, grayscale, or decoded JPEG) as a
 // texture and draws it to a canvas. No application state dependencies.

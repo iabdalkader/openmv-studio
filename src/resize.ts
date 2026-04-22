@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // Draggable resize handles for the IDE layout panels.
 // Handles horizontal (editor/right-panel), vertical (editor/terminal),
 // and vertical (framebuffer/tools) splits with snap-to-align behavior.

@@ -1,3 +1,8 @@
+// Copyright (C) 2026 OpenMV, LLC.
+//
+// This software is licensed under terms that can be found in the
+// LICENSE file in the root directory of this software component.
+
 // OpenMV Protocol V2
 // Ported from protocol/omv_protocol.h
 

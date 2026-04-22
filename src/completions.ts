@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // Pyright-based autocompletion using @typefox/pyright-browser.
 // Runs Pyright (1.9MB) in a Web Worker and speaks LSP directly,
 // registering Monaco providers for completion, hover, and signatures.

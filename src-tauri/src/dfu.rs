@@ -1,3 +1,8 @@
+// Copyright (C) 2026 OpenMV, LLC.
+//
+// This software is licensed under terms that can be found in the
+// LICENSE file in the root directory of this software component.
+
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;

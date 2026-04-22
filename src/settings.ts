@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2026 OpenMV, LLC.
+ *
+ * This software is licensed under terms that can be found in the
+ * LICENSE file in the root directory of this software component.
+ */
 // Settings persistence (save/load) and settings dialog UI.
 // Manages the Store, UI scale, and all preference controls.
 
