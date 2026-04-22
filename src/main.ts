@@ -169,18 +169,15 @@ function termLog(text: string, cls: string = "") {
 // --- IDE log toggle ---
 
 const logToggleBtn = document.getElementById("btn-toggle-log");
+let logUnlisten: (() => void) | null = null;
 
-logToggleBtn?.addEventListener("click", () => {
-  state.showLog = !state.showLog;
-  logToggleBtn.classList.toggle("active", state.showLog);
-  document.querySelectorAll(".log-line").forEach((el) => {
-    (el as HTMLElement).style.display = state.showLog ? "" : "none";
-  });
-  scheduleSaveSettings();
-});
+async function enableLog() {
+  if (logUnlisten) {
+    return;
+  }
 
-import("@tauri-apps/plugin-log").then(({ attachLogger, LogLevel }) => {
-  attachLogger(({ level, message }) => {
+  const { attachLogger, LogLevel } = await import("@tauri-apps/plugin-log");
+  logUnlisten = await attachLogger(({ level, message }) => {
     const el = document.getElementById("terminal-output");
 
     if (!el) {
@@ -196,16 +193,33 @@ import("@tauri-apps/plugin-log").then(({ attachLogger, LogLevel }) => {
     };
     const div = document.createElement("div");
     div.className = levelCls[level] || "log-line";
-
-    if (!state.showLog) {
-      div.style.display = "none";
-    }
-
     div.textContent = message;
     el.appendChild(div);
     el.scrollTop = el.scrollHeight;
   });
+}
+
+function disableLog() {
+  if (logUnlisten) {
+    logUnlisten();
+    logUnlisten = null;
+  }
+}
+
+logToggleBtn?.addEventListener("click", () => {
+  state.showLog = !state.showLog;
+  logToggleBtn.classList.toggle("active", state.showLog);
+
+  if (state.showLog) {
+    enableLog();
+  } else {
+    disableLog();
+  }
+
+  scheduleSaveSettings();
 });
+
+// enableLog() is called from loadSettings().then() after state is loaded
 
 // --- Clear / Lock ---
 
@@ -1188,6 +1202,10 @@ loadSettings().then(() => {
 
   if (!state.filterExamples) {
     loadExamples();
+  }
+
+  if (state.showLog) {
+    enableLog();
   }
 });
 
