@@ -1,4 +1,5 @@
 mod camera;
+mod dfu;
 mod protocol;
 mod transport;
 
@@ -16,6 +17,8 @@ struct Board {
     pid: u16,
     board_type: String,
     display: String,
+    bootloader_vid_pid: Option<String>,
+    fs_partition: Option<Vec<String>>,
 }
 
 struct AppState {
@@ -69,6 +72,12 @@ fn load_boards(app: &tauri::AppHandle) -> Vec<Board> {
                 pid,
                 board_type: b["type"].as_str().unwrap_or("Unknown").to_string(),
                 display: b["display"].as_str().unwrap_or("Unknown").to_string(),
+                bootloader_vid_pid: b["bootloader_vid_pid"].as_str().map(|s| s.to_string()),
+                fs_partition: b["fs_partition"].as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                }),
             })
         })
         .collect()
@@ -267,6 +276,54 @@ fn cmd_bootloader(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
         let _ = tx.send(Command::Bootloader);
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn cmd_erase_filesystem(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let (vid_pid, fs_partition) = {
+        let st = state.lock().map_err(|e| e.to_string())?;
+        let info = st.sysinfo.as_ref().ok_or("Not connected")?;
+        let board = st
+            .boards
+            .iter()
+            .find(|b| b.vid == info.usb_vid && b.pid == info.usb_pid)
+            .ok_or("Unknown board")?;
+        let vid_pid = board
+            .bootloader_vid_pid
+            .clone()
+            .ok_or("Board does not support DFU")?;
+        let fs_partition = board
+            .fs_partition
+            .clone()
+            .ok_or("Board does not support filesystem erase")?;
+        (vid_pid, fs_partition)
+    };
+
+    // Enter bootloader (disconnects the camera)
+    {
+        let st = state.lock().map_err(|e| e.to_string())?;
+        if let Some(ref tx) = st.cmd_tx {
+            let _ = tx.send(Command::Bootloader);
+        }
+    }
+
+    // Run the blocking DFU operation on a background thread
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // Wait for worker to finish and USB re-enumeration
+        std::thread::sleep(Duration::from_secs(3));
+
+        let config = dfu::DfuConfig {
+            vid_pid,
+            fs_partition,
+        };
+        dfu::erase_filesystem(&handle, &config)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
 
 #[tauri::command]
@@ -712,6 +769,7 @@ fn build_menu(
         .text("reset-device", "Reset Device")
         .text("bootloader", "Enter Bootloader")
         .text("fw-update", "Update Firmware")
+        .text("erase-fs", "Erase Filesystem")
         .build()?;
 
     let view = SubmenuBuilder::new(app, "View")
@@ -753,6 +811,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(Arc::new(Mutex::new(AppState {
             boards: vec![],
             sensors: serde_json::json!({}),
@@ -772,6 +831,7 @@ pub fn run() {
             cmd_stop_script,
             cmd_reset,
             cmd_bootloader,
+            cmd_erase_filesystem,
             cmd_enable_streaming,
             cmd_set_stream_source,
             cmd_get_memory,

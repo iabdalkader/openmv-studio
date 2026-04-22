@@ -19,6 +19,15 @@
     "fs:allow-write",
     "fs:allow-exists",
     "fs:allow-app-read",
-    "fs:allow-app-write"
+    "fs:allow-app-write",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/dfu-util",
+          "sidecar": true
+        }
+      ]
+    }
   ]
 }

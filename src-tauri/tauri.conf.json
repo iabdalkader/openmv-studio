@@ -36,6 +36,9 @@
     ],
     "resources": {
       "../resources": "resources"
-    }
+    },
+    "externalBin": [
+      "binaries/dfu-util"
+    ]
   }
 }

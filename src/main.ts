@@ -61,6 +61,7 @@ import {
   updateChannelUi,
 } from "./panels";
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
+import { ProgressDialog } from "./progress";
 
 // --- Context menu ---
 
@@ -593,6 +594,30 @@ async function toggleRunStop() {
   } else {
     await runScript();
   }
+}
+
+async function eraseFilesystem() {
+  if (!state.isConnected) {
+    return;
+  }
+
+  const progress = new ProgressDialog();
+  progress.show("Erase Filesystem");
+
+  const unlisten = await listen<string>("dfu-progress", (event) => {
+    progress.update(event.payload);
+  });
+
+  try {
+    await invoke("cmd_erase_filesystem");
+    progress.update("Done.");
+  } catch (e: any) {
+    progress.update("Error: " + e);
+    console.error("Erase filesystem failed:", e);
+  }
+
+  unlisten();
+  await progress.waitForClose();
 }
 
 document
@@ -1169,6 +1194,9 @@ listen<string>("menu-action", (event) => {
       break;
     case "bootloader":
       invoke("cmd_bootloader");
+      break;
+    case "erase-fs":
+      eraseFilesystem();
       break;
     default:
       if (action.startsWith("recent:")) {
