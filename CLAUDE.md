@@ -1,4 +1,4 @@
-# OpenMV IDE
+# OpenMV Studio
 
 Tauri desktop app: TypeScript frontend (Monaco editor) + Rust backend (serial protocol).
 

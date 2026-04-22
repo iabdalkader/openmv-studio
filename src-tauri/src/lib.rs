@@ -709,7 +709,7 @@ fn build_menu(
     app: &tauri::App,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     // macOS app menu (first submenu becomes the app name menu)
-    let app_menu = SubmenuBuilder::new(app, "OpenMV IDE")
+    let app_menu = SubmenuBuilder::new(app, "OpenMV Studio")
         .about(None)
         .separator()
         .text("settings", "Settings...")
@@ -721,7 +721,7 @@ fn build_menu(
         .show_all()
         .separator()
         .item(
-            &MenuItemBuilder::with_id("quit", "Quit OpenMV IDE")
+            &MenuItemBuilder::with_id("quit", "Quit OpenMV Studio")
                 .accelerator("CmdOrCtrl+Q")
                 .build(app)?,
         )
@@ -786,7 +786,7 @@ fn build_menu(
         .text("docs", "Documentation")
         .text("examples", "Examples")
         .separator()
-        .text("about", "About OpenMV IDE")
+        .text("about", "About OpenMV Studio")
         .build()?;
 
     let menu = MenuBuilder::new(app)

@@ -1,4 +1,4 @@
-# OpenMV IDE
+# OpenMV Studio
 
 Custom IDE for OpenMV cameras built on Tauri 2 + Monaco Editor.
 
@@ -7,7 +7,7 @@ Replaces the legacy Qt Creator-based IDE with a modern, lightweight app.
 ## Source Tree
 
 ```
-openmv-ide/
+openmv-studio/
 |
 |-- index.html              # App HTML layout (sidebar, panels, editor, terminal, framebuffer)
 |-- package.json            # npm deps (vite, monaco-editor, @tauri-apps/api)

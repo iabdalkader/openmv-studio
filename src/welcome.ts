@@ -4,7 +4,7 @@
 const WELCOME_HTML = `
   <div class="welcome-inner">
     <img src="/openmv-logo.svg" class="welcome-logo-img" alt="OpenMV">
-    <h1 class="welcome-title">OpenMV IDE</h1>
+    <h1 class="welcome-title">OpenMV Studio</h1>
     <p class="welcome-subtitle">Machine Vision Made Simple</p>
     <div class="welcome-actions">
       <button class="welcome-btn" id="welcome-new">
