@@ -440,7 +440,7 @@ async function resetAllSettings() {
   await s.clear();
   await s.save();
 
-  state.uiScale = 1.2;
+  state.uiScale = 1.0;
   state.currentThemeSetting = "dark";
   state.ioIntervalMs = 10;
   state.splitLocked = false;
@@ -450,7 +450,7 @@ async function resetAllSettings() {
   setShortcutOverrides({});
 
   applyThemeFn("dark");
-  setUiScale(1.2);
+  setUiScale(1.0);
 
   editor.updateOptions({
     fontSize: 13,

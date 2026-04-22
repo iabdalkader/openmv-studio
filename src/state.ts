@@ -14,7 +14,7 @@ export const state = {
   scriptRunning: false,
   connectedBoard: null as string | null,
   connectedSensor: null as string | null,
-  uiScale: 1.2,
+  uiScale: 1.0,
   ioIntervalMs: 10,
   filterExamples: true,
   canvasVisible: false,
