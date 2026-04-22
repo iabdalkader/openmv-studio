@@ -158,12 +158,12 @@ impl Transport {
             "udp" => (
                 Self::create_udp(address)?,
                 Caps { crc: true, seq: true, ack: false, events: true, max_payload },
-                Duration::from_secs(3),
+                Duration::from_millis(500),
             ),
             _ => (
                 Self::create_serial(address)?,
                 Caps { crc: true, seq: true, ack: true, events: true, max_payload },
-                Duration::from_secs(1),
+                Duration::from_millis(500),
             ),
         };
         Ok(Self {

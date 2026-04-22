@@ -135,7 +135,7 @@ impl Camera {
         for attempt in 0..3 {
             self.transport()?.send_packet(Opcode::ProtoSync, 0, PacketFlags::empty(), None)?;
             std::thread::sleep(Duration::from_millis(10));
-            match self.transport()?.recv_packet(Some(Duration::from_millis(500))) {
+            match self.transport()?.recv_packet(None) {
                 Ok(_) => {
                     self.transport()?.reset_sequence();
                     return self.negotiate_caps();
