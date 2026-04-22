@@ -339,6 +339,10 @@ body {
   font-family: var(--font-code); font-size: 12px; line-height: 1.6; color: var(--text-secondary);
 }
 .terminal-content .info-line { color: var(--text-tertiary); }
+.terminal-content .log-line { color: #6a9fb5; }
+.terminal-content .log-debug { color: #7c8a99; }
+.terminal-content .log-warn { color: #d4843e; }
+.terminal-content .log-error { color: #c75050; }
 
 /* ---- RIGHT PANEL ---- */
 .right-panel {

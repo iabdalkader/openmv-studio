@@ -843,16 +843,31 @@ pub fn run() {
             cmd_update_recent_menu,
         ])
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .targets([tauri_plugin_log::Target::new(
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .format(|out, message, record| {
+                        let target = record
+                            .target()
+                            .strip_prefix("openmv_studio_lib::")
+                            .unwrap_or(record.target());
+                        let now = time::OffsetDateTime::now_utc();
+                        let (h, m, s) = now.to_hms();
+                        out.finish(format_args!(
+                            "[{:02}:{:02}:{:02}][{}][{}] {}",
+                            h, m, s, target, record.level(), message
+                        ))
+                    })
+                    .targets([
+                        tauri_plugin_log::Target::new(
                             tauri_plugin_log::TargetKind::Stderr,
-                        )])
-                        .build(),
-                )?;
-            }
+                        ),
+                        tauri_plugin_log::Target::new(
+                            tauri_plugin_log::TargetKind::Webview,
+                        ),
+                    ])
+                    .build(),
+            )?;
 
             // Load resource files once at startup
             {

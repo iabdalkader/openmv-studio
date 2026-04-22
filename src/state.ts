@@ -13,6 +13,7 @@ export const state = {
   filterExamples: true,
   canvasVisible: false,
   splitLocked: false,
+  showLog: false,
   currentThemeSetting: "dark" as ThemeSetting,
   serialPort: "" as string,
   transportType: "serial" as "serial" | "udp",

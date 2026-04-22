@@ -19,6 +19,7 @@
     "dialog:allow-message",
     "core:window:allow-close",
     "core:window:allow-destroy",
+    "log:default",
     "store:default",
     "fs:default",
     "fs:allow-read",

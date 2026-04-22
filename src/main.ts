@@ -166,6 +166,49 @@ function termLog(text: string, cls: string = "") {
   el.scrollTop = el.scrollHeight;
 }
 
+// --- IDE log toggle ---
+
+const logToggleBtn = document.getElementById("btn-toggle-log");
+
+logToggleBtn?.addEventListener("click", () => {
+  state.showLog = !state.showLog;
+  logToggleBtn.classList.toggle("active", state.showLog);
+  document.querySelectorAll(".log-line").forEach((el) => {
+    (el as HTMLElement).style.display = state.showLog ? "" : "none";
+  });
+  scheduleSaveSettings();
+});
+
+import("@tauri-apps/plugin-log").then(({ attachLogger, LogLevel }) => {
+  attachLogger(({ level, message }) => {
+    const el = document.getElementById("terminal-output");
+
+    if (!el) {
+      return;
+    }
+
+    const levelCls: Record<number, string> = {
+      [LogLevel.Trace]: "log-line",
+      [LogLevel.Debug]: "log-line log-debug",
+      [LogLevel.Info]: "log-line",
+      [LogLevel.Warn]: "log-line log-warn",
+      [LogLevel.Error]: "log-line log-error",
+    };
+    const div = document.createElement("div");
+    div.className = levelCls[level] || "log-line";
+
+    if (!state.showLog) {
+      div.style.display = "none";
+    }
+
+    div.textContent = message;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+  });
+});
+
+// --- Clear / Lock ---
+
 document.getElementById("btn-clear-term")?.addEventListener("click", () => {
   const el = document.getElementById("terminal-output");
 

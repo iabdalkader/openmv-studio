@@ -93,6 +93,7 @@ export async function saveSettings() {
       ioInterval: state.ioIntervalMs,
       filterExamples: state.filterExamples,
       splitLocked: state.splitLocked,
+      showLog: state.showLog,
       transportType: state.transportType,
       networkAddress: state.networkAddress,
     });
@@ -136,6 +137,7 @@ export async function loadSettings() {
       ioInterval?: number;
       filterExamples?: boolean;
       splitLocked?: boolean;
+      showLog?: boolean;
       transportType?: "serial" | "udp";
       networkAddress?: string;
     }>("ui");
@@ -159,6 +161,11 @@ export async function loadSettings() {
     if (ui?.splitLocked) {
       state.splitLocked = true;
       document.getElementById("btn-lock-split")?.classList.add("active");
+    }
+
+    if (ui?.showLog) {
+      state.showLog = true;
+      document.getElementById("btn-toggle-log")?.classList.add("active");
     }
 
     if (ui?.transportType) {
