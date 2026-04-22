@@ -81,6 +81,15 @@ enum ParseState {
     Payload,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Caps {
+    crc: bool,
+    seq: bool,
+    ack: bool,
+    events: bool,
+    max_payload: usize,
+}
+
 enum Backend {
     Serial(Box<dyn serialport::SerialPort>),
     Udp(UdpSocket),
@@ -90,17 +99,13 @@ pub struct Transport {
     backend: Option<Backend>,
     port: String,
     timeout: Duration,
-    pub max_payload: usize,
 
     // Protocol state
     pub sequence: u8,
     state: ParseState,
     plength: usize,
-    crc_enabled: bool,
-    seq_enabled: bool,
-    init_crc: bool,
-    init_seq: bool,
-    init_max_payload: usize,
+    caps: Caps,
+    init_caps: Caps,
 
     // Buffers
     buf: Vec<u8>,
@@ -149,17 +154,15 @@ impl Transport {
     }
 
     pub fn new(address: &str, transport: &str, max_payload: usize) -> Result<Self, TransportError> {
-        let (backend, crc, seq, timeout) = match transport {
+        let (backend, caps, timeout) = match transport {
             "udp" => (
                 Self::create_udp(address)?,
-                true,
-                true,
+                Caps { crc: true, seq: true, ack: false, events: true, max_payload },
                 Duration::from_secs(3),
             ),
             _ => (
                 Self::create_serial(address)?,
-                true,
-                true,
+                Caps { crc: true, seq: true, ack: true, events: true, max_payload },
                 Duration::from_secs(1),
             ),
         };
@@ -167,15 +170,11 @@ impl Transport {
             backend: Some(backend),
             port: address.to_string(),
             timeout,
-            max_payload,
             sequence: 0,
             state: ParseState::Sync,
             plength: 0,
-            crc_enabled: crc,
-            seq_enabled: seq,
-            init_crc: crc,
-            init_seq: seq,
-            init_max_payload: max_payload,
+            caps,
+            init_caps: caps,
             buf: Vec::with_capacity(max_payload * 4),
             pos: 0,
             pbuf: vec![0u8; max_payload + HEADER_SIZE + CRC_SIZE],
@@ -244,29 +243,24 @@ impl Transport {
         self.sequence = 0;
     }
 
-    pub fn crc_enabled(&self) -> bool {
-        self.crc_enabled
+    pub fn get_caps(&self) -> (bool, bool, bool, bool, usize) {
+        (self.caps.crc, self.caps.seq, self.caps.ack, self.caps.events, self.caps.max_payload)
     }
 
-    pub fn seq_enabled(&self) -> bool {
-        self.seq_enabled
-    }
-
-    pub fn reset_caps(&mut self) {
-        self.update_caps(self.init_crc, self.init_seq, self.init_max_payload);
-    }
-
-    pub fn update_caps(&mut self, crc: bool, seq: bool, max_payload: usize) {
-        self.crc_enabled = crc;
-        self.seq_enabled = seq;
-        self.max_payload = max_payload;
+    pub fn set_caps(&mut self, crc: bool, seq: bool, ack: bool, events: bool, max_payload: usize) {
+        self.caps = Caps { crc, seq, ack, events, max_payload };
         self.buf.clear();
         self.pos = 0;
         self.pbuf = vec![0u8; max_payload + HEADER_SIZE + CRC_SIZE];
     }
 
+    pub fn reset_caps(&mut self) {
+        let c = self.init_caps;
+        self.set_caps(c.crc, c.seq, c.ack, c.events, c.max_payload);
+    }
+
     fn calc_crc16(&self, data: &[u8]) -> u16 {
-        if self.crc_enabled {
+        if self.caps.crc {
             CRC16.checksum(data)
         } else {
             0
@@ -274,7 +268,7 @@ impl Transport {
     }
 
     fn calc_crc32(&self, data: &[u8]) -> u32 {
-        if self.crc_enabled {
+        if self.caps.crc {
             CRC32.checksum(data)
         } else {
             0
@@ -282,15 +276,15 @@ impl Transport {
     }
 
     fn check_crc16(&self, crc: u16, data: &[u8]) -> bool {
-        !self.crc_enabled || crc == CRC16.checksum(data)
+        !self.caps.crc || crc == CRC16.checksum(data)
     }
 
     fn check_crc32(&self, crc: u32, data: &[u8]) -> bool {
-        !self.crc_enabled || crc == CRC32.checksum(data)
+        !self.caps.crc || crc == CRC32.checksum(data)
     }
 
     fn check_seq(&self, seq: u8, opcode: u8, flags: PacketFlags) -> bool {
-        !self.seq_enabled
+        !self.caps.seq
             || flags.contains(PacketFlags::EVENT)
             || flags.contains(PacketFlags::RTX)
             || seq == self.sequence
@@ -355,7 +349,7 @@ impl Transport {
             return Err(TransportError::NotConnected);
         }
         let length = data.map_or(0, |d| d.len());
-        if length > self.max_payload {
+        if length > self.caps.max_payload {
             return Err(TransportError::PayloadTooLarge);
         }
 
@@ -568,7 +562,7 @@ impl Transport {
                     let length = u16::from_le_bytes([d[6], d[7]]);
                     let hdr_crc = u16::from_le_bytes([d[8], d[9]]);
 
-                    if length as usize > self.max_payload
+                    if length as usize > self.caps.max_payload
                         || !self.check_crc16(hdr_crc, &d[..HEADER_SIZE - 2])
                     {
                         self.consume(1);

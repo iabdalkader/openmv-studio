@@ -185,27 +185,31 @@ impl Camera {
             return Err(TransportError::IoError("Invalid caps".into()));
         }
 
-        self.max_payload = self
+        let max_payload = self
             .max_payload
             .min(u16::from_le_bytes([p[4], p[5]]) as usize);
+        self.max_payload = max_payload;
 
-        let t = self.transport()?;
-        let crc = t.crc_enabled();
-        let seq = t.seq_enabled();
-        let mut flags: u32 = 1 << 3; // events always on
+        let (crc, seq, ack, events, _) = self.transport()?.get_caps();
+        let mut flags: u32 = 0;
         if crc {
             flags |= 1;
         }
         if seq {
             flags |= 1 << 1;
         }
+        if ack {
+            flags |= 1 << 2;
+        }
+        if events {
+            flags |= 1 << 3;
+        }
         let mut buf = vec![0u8; 16];
         buf[0..4].copy_from_slice(&flags.to_le_bytes());
-        buf[4..6].copy_from_slice(&(self.max_payload as u16).to_le_bytes());
+        buf[4..6].copy_from_slice(&(max_payload as u16).to_le_bytes());
         self.send_cmd(Opcode::ProtoSetCaps, 0, Some(&buf))?;
 
-        let mp = self.max_payload;
-        self.transport()?.update_caps(crc, seq, mp);
+        self.transport()?.set_caps(crc, seq, ack, events, max_payload);
         Ok(())
     }
 
