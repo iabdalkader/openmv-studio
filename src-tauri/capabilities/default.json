@@ -19,6 +19,7 @@
     "dialog:allow-message",
     "core:window:allow-close",
     "core:window:allow-destroy",
+    "core:webview:allow-set-webview-zoom",
     "log:default",
     "store:default",
     "fs:default",

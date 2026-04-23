@@ -11,7 +11,10 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Store } from "@tauri-apps/plugin-store";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import {
+  WebviewWindow,
+  getCurrentWebviewWindow,
+} from "@tauri-apps/api/webviewWindow";
 import {
   state,
   scheduleSaveSettings,
@@ -70,11 +73,7 @@ export function initSettings(
 
 export function setUiScale(scale: number) {
   state.uiScale = Math.max(0.5, Math.min(2.0, scale));
-  (document.body.style as any).zoom = String(state.uiScale);
-  document.body.style.width = 100 / state.uiScale + "vw";
-  document.body.style.height = 100 / state.uiScale + "vh";
-  document.querySelector<HTMLElement>(".ide-layout")!.style.height =
-    100 / state.uiScale + "vh";
+  getCurrentWebviewWindow().setZoom(state.uiScale);
 }
 
 // --- Save / Load ---
@@ -84,8 +83,8 @@ export async function saveSettings() {
     const s = await getStore();
     const rp = document.querySelector<HTMLElement>(".right-panel");
     const tools = document.querySelector(".tools-panel") as HTMLElement;
-    const rpH = rp ? rp.getBoundingClientRect().height / state.uiScale : 0;
-    const toolsH = tools?.getBoundingClientRect().height / state.uiScale;
+    const rpH = rp ? rp.getBoundingClientRect().height : 0;
+    const toolsH = tools?.getBoundingClientRect().height;
     const toolsPct = rpH > 0 ? (toolsH / rpH) * 100 : 50;
     const layoutEl = document.querySelector<HTMLElement>(".ide-layout")!;
     const mainArea = document.querySelector<HTMLElement>(".main-area")!;

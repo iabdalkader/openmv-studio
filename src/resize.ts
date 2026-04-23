@@ -31,7 +31,7 @@ function initHorizontalResize() {
     const rp = document.querySelector(".right-panel") as HTMLElement;
     const w = Math.max(
       200,
-      Math.min(800, rp.getBoundingClientRect().width / state.uiScale - delta),
+      Math.min(800, rp.getBoundingClientRect().width - delta),
     );
     const spW = sidePanel.classList.contains("visible") ? "220px" : "0px";
 
@@ -53,25 +53,25 @@ function initVerticalResize() {
     handle.classList.add("active");
 
     const tp = document.querySelector(".terminal-panel") as HTMLElement;
-    const startY = e.clientY / state.uiScale;
-    const startH = tp.getBoundingClientRect().height / state.uiScale;
-    const maBottom = mainArea.getBoundingClientRect().bottom / state.uiScale;
+    const startY = e.clientY;
+    const startH = tp.getBoundingClientRect().height;
+    const maBottom = mainArea.getBoundingClientRect().bottom;
 
     // Capture fb/tools state for locked mode.
     const rp = document.querySelector(".right-panel") as HTMLElement;
     const fb = document.querySelector(".fb-section") as HTMLElement;
     const tools = document.querySelector(".tools-panel") as HTMLElement;
-    const startFbH = fb.getBoundingClientRect().height / state.uiScale;
-    const rpH = rp.getBoundingClientRect().height / state.uiScale;
+    const startFbH = fb.getBoundingClientRect().height;
+    const rpH = rp.getBoundingClientRect().height;
     const fbHandleH = 4;
 
-    const headerH = (fb.querySelector(".fb-header")
-      ?.getBoundingClientRect().height ?? 0) / state.uiScale;
-    const vpW = (fb.querySelector(".fb-viewport")
-      ?.getBoundingClientRect().width ?? 0) / state.uiScale;
+    const headerH =
+      fb.querySelector(".fb-header")?.getBoundingClientRect().height ?? 0;
+    const vpW =
+      fb.querySelector(".fb-viewport")?.getBoundingClientRect().width ?? 0;
 
     const onMove = (ev: MouseEvent) => {
-      const delta = startY - ev.clientY / state.uiScale;
+      const delta = startY - ev.clientY;
       let h = Math.max(60, Math.min(600, startH + delta));
 
       if (!state.splitLocked) {
@@ -109,7 +109,7 @@ function initVerticalResize() {
         tools.style.height = (toolsH / rpH) * 100 + "%";
       }
 
-      const maH = mainArea.getBoundingClientRect().height / state.uiScale;
+      const maH = mainArea.getBoundingClientRect().height;
       const pct = (h / maH) * 100;
 
       mainArea.style.gridTemplateRows = `32px 1fr 4px ${pct}%`;
@@ -143,24 +143,24 @@ function initFbToolsResize() {
     const rp = document.querySelector(".right-panel") as HTMLElement;
     const fb = document.querySelector(".fb-section") as HTMLElement;
     const tools = document.querySelector(".tools-panel") as HTMLElement;
-    const startY = e.clientY / state.uiScale;
-    const startFbH = fb.getBoundingClientRect().height / state.uiScale;
-    const rpH = rp.getBoundingClientRect().height / state.uiScale;
-    const rpTop = rp.getBoundingClientRect().top / state.uiScale;
+    const startY = e.clientY;
+    const startFbH = fb.getBoundingClientRect().height;
+    const rpH = rp.getBoundingClientRect().height;
+    const rpTop = rp.getBoundingClientRect().top;
     const handleH = 4;
 
-    const headerH = (fb.querySelector(".fb-header")
-      ?.getBoundingClientRect().height ?? 0) / state.uiScale;
-    const vpW = (fb.querySelector(".fb-viewport")
-      ?.getBoundingClientRect().width ?? 0) / state.uiScale;
+    const headerH =
+      fb.querySelector(".fb-header")?.getBoundingClientRect().height ?? 0;
+    const vpW =
+      fb.querySelector(".fb-viewport")?.getBoundingClientRect().width ?? 0;
 
     // Capture terminal state for locked mode.
     const tp = document.querySelector(".terminal-panel") as HTMLElement;
-    const startTermH = tp.getBoundingClientRect().height / state.uiScale;
-    const maH = mainArea.getBoundingClientRect().height / state.uiScale;
+    const startTermH = tp.getBoundingClientRect().height;
+    const maH = mainArea.getBoundingClientRect().height;
 
     const onMove = (e: MouseEvent) => {
-      const delta = e.clientY / state.uiScale - startY;
+      const delta = e.clientY - startY;
       let fbH = Math.max(80, Math.min(rpH - handleH - 80, startFbH + delta));
 
       if (!state.splitLocked) {
@@ -232,11 +232,11 @@ function setupHandle(
     e.preventDefault();
     handle.classList.add("active");
 
-    const startPos = (axis === "col" ? e.clientX : e.clientY) / state.uiScale;
+    const startPos = axis === "col" ? e.clientX : e.clientY;
     let lastPos = startPos;
 
     const onMove = (e: MouseEvent) => {
-      const pos = (axis === "col" ? e.clientX : e.clientY) / state.uiScale;
+      const pos = axis === "col" ? e.clientX : e.clientY;
       onDelta(pos - lastPos);
       lastPos = pos;
     };
@@ -255,11 +255,11 @@ function setupHandle(
 
 function getToolsTopY(): number {
   const tools = document.querySelector(".tools-panel") as HTMLElement;
-  return tools.getBoundingClientRect().top / state.uiScale;
+  return tools.getBoundingClientRect().top;
 }
 
 function getTerminalTopY(): number {
   const tp = document.querySelector(".terminal-panel") as HTMLElement;
-  return tp.getBoundingClientRect().top / state.uiScale;
+  return tp.getBoundingClientRect().top;
 }
 
