@@ -515,10 +515,12 @@ impl Transport {
                     Some(Status::Fragment) => TransportError::Fragment,
                     _ => TransportError::Unknown,
                 };
-                log::warn!(
-                    "recv_packet: NAK opcode=0x{:02x} ch={} status={}(0x{:04x}) seq={}",
-                    packet.opcode, packet.channel, err, raw, packet.sequence
-                );
+                if !matches!(err, TransportError::Busy) {
+                    log::warn!(
+                        "recv_packet: NAK opcode=0x{:02x} ch={} status={}(0x{:04x}) seq={}",
+                        packet.opcode, packet.channel, err, raw, packet.sequence
+                    );
+                }
                 return Err(err);
             }
 
