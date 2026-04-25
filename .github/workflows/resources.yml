@@ -1,0 +1,44 @@
+name: Package and Upload Resources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Package resources
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/package-resources.sh
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
+        run: |
+          for f in dist/resources/*.tar.xz; do
+            echo "Uploading $(basename "$f")..."
+            aws s3 cp "$f" "s3://download/studio/$(basename "$f")" \
+              --endpoint-url "$AWS_ENDPOINT_URL" \
+              --no-progress
+          done
+
+          echo "Uploading manifest.json..."
+          aws s3 cp dist/resources/manifest.json s3://download/studio/manifest.json \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --content-type application/json \
+            --no-progress
+
+          echo "Upload complete."
