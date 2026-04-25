@@ -86,7 +86,7 @@ fn resources_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn installed_version(dir: &Path, name: &str) -> Option<String> {
-    let version_file = dir.join(format!("{}.version", name));
+    let version_file = dir.join(name).join("version");
     std::fs::read_to_string(version_file).ok().map(|s| s.trim().to_string())
 }
 
@@ -168,7 +168,7 @@ async fn download_resource(
     let staging_path = dir.join(format!("{}.staging", name));
     let final_path = dir.join(name);
     let old_path = dir.join(format!("{}.old", name));
-    let version_file = dir.join(format!("{}.version", name));
+    let version_file = final_path.join("version");
 
     // Phase 1: Download with streaming hash
     emit_progress(app, name, "downloading", "Starting download...", 0, size);

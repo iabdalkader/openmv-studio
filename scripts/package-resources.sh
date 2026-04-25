@@ -160,11 +160,19 @@ package_firmware() {
     local archive_name="firmware-${FW_VERSION}"
     mkdir -p "$TMPDIR/${archive_name}"
 
-    echo "Downloading firmware assets from release ${FW_TAG}..."
+    echo "Downloading firmware zip from release ${FW_TAG}..."
     gh release download "$FW_TAG" \
         --repo "$FIRMWARE_GH_REPO" \
         --dir "$TMPDIR/${archive_name}" \
-        --pattern "*.dfu" --pattern "*.bin" --pattern "*.zip" 2>/dev/null || true
+        --pattern "*.zip" 2>/dev/null || true
+
+    # Extract zip files, strip top-level directory (e.g., firmware_v4.8.1/)
+    for zip in "$TMPDIR/${archive_name}"/*.zip; do
+        [ -f "$zip" ] || continue
+        echo "  Extracting $(basename "$zip")..."
+        unzip -q -o "$zip" -d "$TMPDIR/${archive_name}"
+        rm "$zip"
+    done
 
     local count
     count=$(find "$TMPDIR/${archive_name}" -type f | wc -l | tr -d ' ')
@@ -172,7 +180,7 @@ package_firmware() {
         echo "ERROR: No firmware assets found in release $FW_TAG" >&2
         return 1
     fi
-    echo "  Downloaded ${count} firmware files"
+    echo "  ${count} firmware files"
 
     make_archive "$archive_name" "$TMPDIR/${archive_name}"
 }
