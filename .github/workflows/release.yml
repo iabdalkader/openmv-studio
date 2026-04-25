@@ -29,6 +29,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify version matches tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*: *"\(.*\)".*/\1/')
+          if [ "$TAG" != "$VER" ]; then
+            echo "ERROR: tag v${TAG} does not match tauri.conf.json version ${VER}"
+            exit 1
+          fi
+
       - name: Clone openmv and copy examples
         shell: bash
         run: |
