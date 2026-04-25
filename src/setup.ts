@@ -26,7 +26,6 @@ export async function openSetupWindow(): Promise<void> {
     width: Math.round(520 * scale),
     height: Math.round(420 * scale),
     resizable: false,
-    closable: false,
     center: true,
     alwaysOnTop: true,
     parent: "main",

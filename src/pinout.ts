@@ -4,10 +4,10 @@
  * This software is licensed under terms that can be found in the
  * LICENSE file in the root directory of this software component.
  */
+import { state } from "./state";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { state } from "./state";
 
 let pinoutWin: WebviewWindow | null = null;
 
@@ -20,8 +20,8 @@ export async function openPinoutViewer() {
   const win = new WebviewWindow("pinout", {
     url: "pinout.html",
     title: "Pinout Viewer",
-    width: Math.round(900 * scale),
-    height: Math.round(640 * scale),
+    width: Math.round(704 * scale),
+    height: Math.round(528 * scale),
     resizable: true,
     center: true,
     alwaysOnTop: true,

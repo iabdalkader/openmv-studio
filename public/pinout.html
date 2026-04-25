@@ -406,7 +406,7 @@
           var center = box.getCenter(new THREE.Vector3());
           var size = box.getSize(new THREE.Vector3());
           var maxDim = Math.max(size.x, size.y, size.z);
-          var dist = maxDim * 1.8;
+          var dist = maxDim * 2.4;
 
           camera.near = maxDim * 0.001;
           camera.far = maxDim * 100;
