@@ -16,12 +16,8 @@ import {
   createMessageConnection,
   type MessageConnection,
 } from "vscode-jsonrpc/browser";
-
-// Vite imports all .pyi stubs as raw strings at build time.
-const stubModules = import.meta.glob<string>(
-  "../resources/stubs/*.pyi",
-  { eager: true, query: "?raw", import: "default" },
-);
+import { invoke } from "@tauri-apps/api/core";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 
 const DOC_URI = "file:///main.py";
 let connection: MessageConnection | null = null;
@@ -267,19 +263,21 @@ export async function registerCompletions(
   // Give the server a moment to initialize internally.
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  // Build the stub files map for the worker's virtual filesystem.
+  // Load stub files at runtime from the downloaded resources directory.
   // Each stub becomes /<module>/__init__.pyi so Pyright's
   // import resolver can find them as packages under rootUri.
   const filesMap: Record<string, string> = {};
+  const stubPaths = await invoke<string[]>("cmd_list_stubs");
 
-  for (const [path, content] of Object.entries(stubModules)) {
-    const filename = path.split("/").pop();
+  for (const stubPath of stubPaths) {
+    const filename = stubPath.split("/").pop() || stubPath.split("\\").pop();
 
     if (!filename) {
       continue;
     }
 
     const modName = filename.replace(/\.pyi$/, "");
+    const content = await readTextFile(stubPath);
     // Place stubs at root so "import sensor" resolves to
     // /sensor/__init__.pyi under rootUri file:///
     filesMap[`/${modName}/__init__.pyi`] = content;

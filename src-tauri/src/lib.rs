@@ -6,6 +6,7 @@
 mod camera;
 mod dfu;
 mod protocol;
+mod resources;
 mod transport;
 
 use std::sync::{Arc, Mutex, mpsc};
@@ -36,7 +37,27 @@ struct AppState {
     verinfo: Option<VersionInfo>,
 }
 
+struct SetupComplete(AtomicBool);
+
+#[tauri::command]
+fn cmd_setup_done(app: tauri::AppHandle) {
+    let flag = app.state::<Arc<SetupComplete>>();
+    flag.0.store(true, Ordering::SeqCst);
+}
+
 pub(crate) fn resolve_resource(app: &tauri::AppHandle, name: &str) -> std::path::PathBuf {
+    // Check app data dir first for runtime-downloaded resources
+    let top = name.split('/').next().unwrap_or("");
+    if resources::DOWNLOADED_RESOURCES.contains(&top) {
+        if let Ok(data_dir) = app.path().app_data_dir() {
+            let p = data_dir.join("resources").join(name);
+            if p.exists() {
+                return p;
+            }
+        }
+    }
+
+    // Fallback: bundled resources (boards.json, sensors.json)
     let path = format!("resources/{}", name);
     app.path()
         .resolve(&path, tauri::path::BaseDirectory::Resource)
@@ -48,7 +69,7 @@ fn parse_hex16(s: &str) -> u16 {
 }
 
 fn load_boards(app: &tauri::AppHandle) -> Vec<Board> {
-    let path = resolve_resource(app, "boards.json");
+    let path = resolve_resource(app, "boards/boards.json");
     let json = std::fs::read_to_string(&path)
         .ok()
         .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok());
@@ -80,7 +101,7 @@ fn load_boards(app: &tauri::AppHandle) -> Vec<Board> {
 }
 
 fn load_sensors(app: &tauri::AppHandle) -> serde_json::Value {
-    let path = resolve_resource(app, "sensors.json");
+    let path = resolve_resource(app, "boards/sensors.json");
     std::fs::read_to_string(&path)
         .ok()
         .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
@@ -841,6 +862,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(Arc::new(AtomicBool::new(false)))
+        .manage(Arc::new(SetupComplete(AtomicBool::new(false))))
         .manage(Arc::new(Mutex::new(AppState {
             boards: vec![],
             sensors: serde_json::json!({}),
@@ -871,6 +893,12 @@ pub fn run() {
             cmd_write_file,
             cmd_file_mtime,
             cmd_update_recent_menu,
+            cmd_setup_done,
+            resources::cmd_check_resources,
+            resources::cmd_fetch_manifest,
+            resources::cmd_download_resource,
+            resources::cmd_resource_path,
+            resources::cmd_list_stubs,
         ])
         .setup(|app| {
             app.handle().plugin(
@@ -933,6 +961,11 @@ pub fn run() {
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.emit("request-close", ());
+                } else if window.label() == "setup" {
+                    let done = window.state::<Arc<SetupComplete>>();
+                    if !done.0.load(Ordering::SeqCst) {
+                        window.app_handle().exit(0);
+                    }
                 } else if window.label() == "dfu-progress" {
                     let running = window.state::<Arc<AtomicBool>>();
                     if running.load(Ordering::SeqCst) {

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1e1e1e; color: #ccc;
+      padding: 24px 28px; display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden;
+      user-select: none;
+    }
+    h2 {
+      font-size: 15px; font-weight: 600; color: #eee;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      font-size: 11px; color: #888; margin-bottom: 20px;
+    }
+    .resources {
+      flex: 1; overflow-y: auto;
+    }
+    .resource {
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .resource:last-child {
+      border-bottom: none;
+    }
+    .resource-header {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 6px;
+    }
+    .resource-name {
+      font-size: 13px; font-weight: 500; color: #ddd;
+      text-transform: capitalize;
+    }
+    .resource-status {
+      font-size: 11px; color: #777;
+    }
+    .resource-status.done { color: #4caf50; }
+    .resource-status.error { color: #f44336; }
+    .progress-bar-container {
+      height: 4px; background: rgba(255, 255, 255, 0.06); border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; width: 0%; border-radius: 2px;
+      background: #4a9eff;
+      transition: width 0.3s ease;
+    }
+    .progress-bar.done { background: #4caf50; }
+    #footer {
+      display: flex; justify-content: flex-end;
+      padding-top: 16px; gap: 10px;
+    }
+    button {
+      padding: 7px 24px; border-radius: 6px;
+      border: 1px solid #3a3a3e; background: #28282c;
+      color: #ccc; font-size: 12px; cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: #333; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    button.primary {
+      background: #4a9eff; border-color: #4a9eff; color: #fff;
+    }
+    button.primary:hover:not(:disabled) { background: #3a8eef; }
+    #error-msg {
+      font-size: 11px; color: #f44336; margin-top: 8px;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Setting up OpenMV Studio</h2>
+  <p class="subtitle">Required resources will be downloaded on first run.</p>
+  <div class="resources" id="resources"></div>
+  <div id="error-msg"></div>
+  <div id="footer">
+    <button id="btn-cancel">Cancel</button>
+    <button id="btn-download" class="primary">Download</button>
+  </div>
+  <script>
+    var invoke = window.__TAURI__.core.invoke;
+    var listen = window.__TAURI__.event.listen;
+    var emit = window.__TAURI__.event.emit;
+    var appWindow = window.__TAURI__.window.getCurrentWindow();
+
+    var resourcesEl = document.getElementById("resources");
+    var btnDownload = document.getElementById("btn-download");
+    var btnCancel = document.getElementById("btn-cancel");
+    var errorMsg = document.getElementById("error-msg");
+
+    // Display names for resources (shown in UI instead of internal names)
+    var displayNames = {
+      "stubs": "Auto-completions",
+    };
+
+    var statuses = [];
+    var downloading = false;
+
+    function displayName(name) {
+      return displayNames[name] || name;
+    }
+
+    function init() {
+      // Read initial status from the window label's data
+      // The parent passes status via a query param or we fetch it
+      invoke("cmd_check_resources").then(function(result) {
+        statuses = result;
+        renderResources();
+        checkAllDone();
+      });
+    }
+
+    function renderResources() {
+      resourcesEl.innerHTML = "";
+      for (var i = 0; i < statuses.length; i++) {
+        var s = statuses[i];
+        var div = document.createElement("div");
+        div.className = "resource";
+        div.id = "resource-" + s.name;
+
+        var header = document.createElement("div");
+        header.className = "resource-header";
+
+        var nameEl = document.createElement("span");
+        nameEl.className = "resource-name";
+        nameEl.textContent = displayName(s.name);
+
+        var statusEl = document.createElement("span");
+        statusEl.className = "resource-status";
+        statusEl.id = "status-" + s.name;
+        if (!s.needs_update) {
+          statusEl.textContent = "Installed";
+          statusEl.classList.add("done");
+        } else {
+          statusEl.textContent = "Not installed";
+        }
+
+        header.appendChild(nameEl);
+        header.appendChild(statusEl);
+
+        var barContainer = document.createElement("div");
+        barContainer.className = "progress-bar-container";
+
+        var bar = document.createElement("div");
+        bar.className = "progress-bar";
+        bar.id = "bar-" + s.name;
+        if (!s.needs_update) {
+          bar.style.width = "100%";
+          bar.classList.add("done");
+        }
+
+        barContainer.appendChild(bar);
+        div.appendChild(header);
+        div.appendChild(barContainer);
+        resourcesEl.appendChild(div);
+      }
+    }
+
+    function checkAllDone() {
+      var allDone = statuses.every(function(s) { return !s.needs_update; });
+      if (allDone) {
+        btnDownload.disabled = true;
+        finishSetup();
+      }
+    }
+
+    listen("resource-progress", function(event) {
+      var p = event.payload;
+      var bar = document.getElementById("bar-" + p.resource);
+      var statusEl = document.getElementById("status-" + p.resource);
+
+      if (!bar || !statusEl) {
+        return;
+      }
+
+      if (p.phase === "done") {
+        bar.style.width = "100%";
+        bar.classList.add("done");
+        statusEl.textContent = "Installed";
+        statusEl.className = "resource-status done";
+        // Mark as no longer needing update
+        for (var i = 0; i < statuses.length; i++) {
+          if (statuses[i].name === p.resource) {
+            statuses[i].needs_update = false;
+          }
+        }
+        checkAllDone();
+      } else if (p.bytes_total > 0) {
+        var pct = Math.round((p.bytes_downloaded / p.bytes_total) * 100);
+        bar.style.width = pct + "%";
+        statusEl.textContent = pct + "%";
+        statusEl.className = "resource-status";
+      } else {
+        statusEl.textContent = p.message;
+        statusEl.className = "resource-status";
+      }
+    });
+
+    btnDownload.addEventListener("click", function() {
+      if (downloading) {
+        return;
+      }
+      downloading = true;
+      btnDownload.disabled = true;
+      errorMsg.textContent = "";
+
+      // Fetch manifest first, then download each resource that needs it
+      invoke("cmd_fetch_manifest").then(function(freshStatuses) {
+        statuses = freshStatuses;
+        renderResources();
+
+        var pending = statuses.filter(function(s) { return s.needs_update; });
+        var chain = Promise.resolve();
+
+        for (var i = 0; i < pending.length; i++) {
+          (function(name) {
+            chain = chain.then(function() {
+              return invoke("cmd_download_resource", { name: name });
+            });
+          })(pending[i].name);
+        }
+
+        return chain;
+      }).then(function() {
+        downloading = false;
+        checkAllDone();
+      }).catch(function(err) {
+        downloading = false;
+        btnDownload.disabled = false;
+        errorMsg.textContent = "Error: " + err;
+      });
+    });
+
+    btnCancel.addEventListener("click", function() {
+      appWindow.close();
+    });
+
+    function finishSetup() {
+      // Mark setup as complete so the close handler does not quit the app
+      invoke("cmd_setup_done").then(function() {
+        emit("setup-complete");
+        appWindow.close();
+      });
+    }
+
+
+    init();
+  </script>
+</body>
+</html>

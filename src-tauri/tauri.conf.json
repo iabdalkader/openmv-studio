@@ -22,7 +22,11 @@
     ],
     "withGlobalTauri": true,
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/resources/**"]
+      }
     }
   },
   "bundle": {
@@ -32,8 +36,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "../resources": "resources"
-    }
+    "resources": {}
   }
 }

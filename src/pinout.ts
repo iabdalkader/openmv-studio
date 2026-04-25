@@ -4,6 +4,7 @@
  * This software is licensed under terms that can be found in the
  * LICENSE file in the root directory of this software component.
  */
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { state } from "./state";
@@ -23,6 +24,7 @@ export async function openPinoutViewer() {
     height: Math.round(640 * scale),
     resizable: true,
     center: true,
+    alwaysOnTop: true,
     parent: "main",
   });
 
@@ -39,12 +41,19 @@ export async function openPinoutViewer() {
     return;
   }
 
-  const readyUnlisten = await listen("pinout-ready", () => {
+  const readyUnlisten = await listen("pinout-ready", async () => {
     readyUnlisten();
+    let boardsPath = "";
+    try {
+      boardsPath = await invoke<string>("cmd_resource_path", { name: "boards" });
+    } catch {
+      // Fallback: not downloaded yet, will fail gracefully in pinout.html
+    }
     win.emit("pinout-init", {
       connectedBoard: state.connectedBoard,
       resolvedTheme:
         document.documentElement.getAttribute("data-theme") || "dark",
+      boardsPath,
     });
   });
 

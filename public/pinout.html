@@ -239,6 +239,8 @@
 
     var listen = window.__TAURI__.event.listen;
     var emit = window.__TAURI__.event.emit;
+    var convertFileSrc = window.__TAURI__.core.convertFileSrc;
+    var boardsBasePath = "";
 
     // --- DOM refs ---
     var canvas = document.getElementById("three-canvas");
@@ -358,7 +360,7 @@
       loadingMsg.textContent = "Loading model...";
 
       // Load both pinout JSON and GLTF model, then wire up pins
-      var pinoutPromise = fetch(boardEntry.pinout)
+      var pinoutPromise = fetch(boardAssetUrl(boardEntry.pinout))
         .then(function(r) { return r.json(); })
         .then(function(data) { return data.pins || {}; })
         .catch(function(e) {
@@ -367,7 +369,7 @@
         });
 
       var modelPromise = new Promise(function(resolve, reject) {
-        loader.load(boardEntry.model, resolve, undefined, reject);
+        loader.load(boardAssetUrl(boardEntry.model), resolve, undefined, reject);
       });
 
       Promise.all([pinoutPromise, modelPromise])
@@ -543,15 +545,23 @@
       }
     });
 
+    function boardAssetUrl(relPath) {
+      if (boardsBasePath) {
+        return convertFileSrc(boardsBasePath + "/" + relPath);
+      }
+      return relPath;
+    }
+
     // --- Init ---
     listen("pinout-init", function(event) {
       var d = event.payload;
       resolvedTheme = d.resolvedTheme || "dark";
+      boardsBasePath = d.boardsPath || "";
       document.documentElement.setAttribute("data-theme", resolvedTheme);
       scene.background = new THREE.Color(themeBg[resolvedTheme] || themeBg.dark);
 
       // Load board index
-      fetch("pinouts/index.json")
+      fetch(boardAssetUrl("pinouts/index.json"))
         .then(function(r) { return r.json(); })
         .then(function(data) {
           boardIndex = data.boards || [];

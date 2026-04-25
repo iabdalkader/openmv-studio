@@ -6,7 +6,8 @@
     "main",
     "dfu-progress",
     "settings",
-    "pinout"
+    "pinout",
+    "setup"
   ],
   "permissions": [
     "core:default",

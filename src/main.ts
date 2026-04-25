@@ -69,6 +69,7 @@ import {
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openPinoutViewer } from "./pinout";
+import { openSetupWindow, type ResourceStatus } from "./setup";
 
 // --- Context menu ---
 
@@ -690,6 +691,7 @@ async function eraseFilesystem() {
     height: Math.round(320 * scale),
     resizable: true,
     center: true,
+    alwaysOnTop: true,
     parent: "main",
   });
 
@@ -1197,9 +1199,18 @@ setUiScale(state.uiScale);
 
 // --- Load settings then finalize UI ---
 
-loadSettings().then(() => {
+loadSettings().then(async () => {
   setUiScale(state.uiScale);
   applyTheme(state.currentThemeSetting);
+
+  // Check if resources need downloading (first run or update)
+  const status = await invoke<ResourceStatus[]>("cmd_check_resources");
+  const needsSetup = status.some((s) => s.needs_update);
+
+  if (needsSetup) {
+    await openSetupWindow();
+  }
+
   renderTabs();
   startFileWatching();
   updateRecentMenu();

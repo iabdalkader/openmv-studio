@@ -300,6 +300,7 @@ export async function openSettings() {
     height: Math.round(560 * scale),
     resizable: true,
     center: true,
+    alwaysOnTop: true,
     parent: "main",
   });
 

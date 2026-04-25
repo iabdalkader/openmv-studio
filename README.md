@@ -80,31 +80,11 @@ Communication is hybrid event-driven and polling:
 
 - Rust toolchain (`rustup`)
 - Node.js (v22+)
-- Python 3 with `sphinx` (`pip install sphinx`)
+### Resources
 
-### Fetch resources
-
-The build requires examples, Python stubs, and SDK tools which are not checked
-into the repo. Clone the upstream repos into a temp directory and run the
-setup steps below (matching what the CI workflow does):
-
-```bash
-TMPDIR=$(mktemp -d)
-
-# 1. Examples -- copy from openmv repo
-git clone --depth 1 https://github.com/openmv/openmv.git "$TMPDIR/openmv"
-rm -rf resources/examples
-cp -r "$TMPDIR/openmv/scripts/examples" resources/examples
-
-# 2. Python stubs -- generated from openmv-doc via gen_api.py
-git clone --depth 1 https://github.com/openmv/openmv-doc.git "$TMPDIR/openmv-doc"
-python3 "$TMPDIR/openmv/tools/gen_api.py" \
-  --docs-dir "$TMPDIR/openmv-doc/docs/_sources/library/" \
-  --pyi-dir resources/stubs
-
-# 3. SDK tools (dfu-util, stedgeai, python)
-scripts/setup.sh
-```
+Resources (examples, stubs, firmware, tools) are downloaded at runtime on
+first launch. For development, only `resources/boards/` is checked in. The
+`scripts/package-resources.sh` script packages resources for upload to R2.
 
 ### Build and run
 
