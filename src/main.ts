@@ -70,6 +70,8 @@ import { initSettings, loadSettings, setUiScale, openSettings } from "./settings
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openPinoutViewer } from "./pinout";
 import { openResourceWindow, type ResourceStatus } from "./resources";
+import { message as dialogMessage } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 // --- Context menu ---
 
@@ -1217,7 +1219,6 @@ document.getElementById("status-updates")?.addEventListener("click", async () =>
   hideUpdateIndicator();
   const downloaded = await openResourceWindow("update");
   if (downloaded) {
-    const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
   }
 });
@@ -1234,7 +1235,6 @@ loadSettings().then(async () => {
 
   if (needsSetup) {
     await openResourceWindow("setup");
-    const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
     return;
   }
@@ -1270,8 +1270,6 @@ listen("request-close", async () => {
     if (!f.modified) {
       continue;
     }
-
-    const { message: dialogMessage } = await import("@tauri-apps/plugin-dialog");
 
     const result = await dialogMessage(
       `Do you want to save changes to ${fileName(f)}?`,
