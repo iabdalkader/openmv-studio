@@ -939,7 +939,9 @@ pub fn run() {
             }
 
             let menu = build_menu(app)?;
-            app.set_menu(menu)?;
+            if let Some(main_win) = app.get_webview_window("main") {
+                main_win.set_menu(menu)?;
+            }
 
             // Handle menu events -- emit to frontend
             let handle = app.handle().clone();
@@ -956,8 +958,8 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.emit("request-close", ());
@@ -973,6 +975,12 @@ pub fn run() {
                     }
                 }
             }
+            tauri::WindowEvent::Destroyed => {
+                if window.label() == "main" {
+                    window.app_handle().exit(0);
+                }
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
