@@ -3,7 +3,9 @@
 // This software is licensed under terms that can be found in the
 // LICENSE file in the root directory of this software component.
 
+mod backend;
 mod camera;
+mod checksum;
 mod dfu;
 mod protocol;
 mod resources;

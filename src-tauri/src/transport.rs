@@ -5,38 +5,26 @@
 
 // OpenMV Protocol Transport Layer
 
-use std::io::{Read, Write};
-use std::net::UdpSocket;
 use std::time::{Duration, Instant};
-
-use crc::{Algorithm, Crc, Table};
-
 use crate::protocol::*;
+use crate::backend::{Backend, NetworkBackend, SerialBackend};
+use crate::checksum::{calc_crc16, calc_crc32};
 
-const OPENMV_CRC16: Algorithm<u16> = Algorithm {
-    width: 16,
-    poly: 0xF94F,
-    init: 0xFFFF,
-    refin: false,
-    refout: false,
-    xorout: 0x0000,
-    check: 0x0000,
-    residue: 0x0000,
-};
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TransportState {
+    Sync,
+    Header,
+    Payload,
+}
 
-const OPENMV_CRC32: Algorithm<u32> = Algorithm {
-    width: 32,
-    poly: 0xFA567D89,
-    init: 0xFFFFFFFF,
-    refin: false,
-    refout: false,
-    xorout: 0x00000000,
-    check: 0x00000000,
-    residue: 0x00000000,
-};
-
-const CRC16: Crc<u16, Table<16>> = Crc::<u16, Table<16>>::new(&OPENMV_CRC16);
-const CRC32: Crc<u32, Table<16>> = Crc::<u32, Table<16>>::new(&OPENMV_CRC32);
+#[derive(Debug, Clone, Copy)]
+pub struct TransportCaps {
+    pub crc: bool,
+    pub seq: bool,
+    pub ack: bool,
+    pub events: bool,
+    pub max_payload: usize,
+}
 
 #[derive(Debug)]
 pub enum TransportError {
@@ -83,46 +71,20 @@ impl std::fmt::Display for TransportError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ParseState {
-    Sync,
-    Header,
-    Payload,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Caps {
-    crc: bool,
-    seq: bool,
-    ack: bool,
-    events: bool,
-    max_payload: usize,
-}
-
-enum Backend {
-    Serial(Box<dyn serialport::SerialPort>),
-    Udp(UdpSocket),
-}
-
 pub struct Transport {
-    backend: Option<Backend>,
-    port: String,
+    backend: Option<Box<dyn Backend>>,
     timeout: Duration,
 
     // Protocol state
     pub sequence: u8,
-    state: ParseState,
+    state: TransportState,
     plength: usize,
-    caps: Caps,
-    init_caps: Caps,
+    caps: TransportCaps,
 
     // Buffers
     buf: Vec<u8>,
     pos: usize, // read cursor into buf
     pbuf: Vec<u8>,
-
-    // Read buffer
-    read_buf: Vec<u8>,
 
     // Events collected during recv_packet
     events: Vec<crate::protocol::Packet>,
@@ -135,115 +97,47 @@ impl Drop for Transport {
 }
 
 impl Transport {
-    fn create_serial(port: &str) -> Result<Backend, TransportError> {
-        let serial = serialport::new(port, 921600)
-            .timeout(Duration::from_secs(1))
-            .open()
-            .map_err(|e| TransportError::IoError(e.to_string()))?;
-        let _ = serial.clear(serialport::ClearBuffer::All);
-        std::thread::sleep(Duration::from_millis(100));
-        let _ = serial.clear(serialport::ClearBuffer::All);
-        Ok(Backend::Serial(serial))
-    }
-
-    fn create_udp(address: &str) -> Result<Backend, TransportError> {
-        use std::net::ToSocketAddrs;
-        let addr = address
-            .to_socket_addrs()
-            .map_err(|e| TransportError::IoError(format!("Resolve {}: {}", address, e)))?
-            .next()
-            .ok_or_else(|| TransportError::IoError(format!("Could not resolve {}", address)))?;
-        let sock = UdpSocket::bind("0.0.0.0:0")
-            .map_err(|e| TransportError::IoError(e.to_string()))?;
-        sock.connect(addr)
-            .map_err(|e| TransportError::IoError(e.to_string()))?;
-        sock.set_read_timeout(Some(Duration::from_millis(1)))
-            .map_err(|e| TransportError::IoError(e.to_string()))?;
-        Ok(Backend::Udp(sock))
-    }
-
     pub fn new(address: &str, transport: &str, max_payload: usize) -> Result<Self, TransportError> {
-        let (backend, caps, timeout) = match transport {
-            "udp" => (
-                Self::create_udp(address)?,
-                Caps { crc: true, seq: true, ack: false, events: true, max_payload },
-                Duration::from_millis(500),
-            ),
-            _ => (
-                Self::create_serial(address)?,
-                Caps { crc: true, seq: true, ack: true, events: true, max_payload },
-                Duration::from_millis(500),
-            ),
+        let backend: Box<dyn Backend> = match transport {
+            "serial" => Box::new(SerialBackend::new(address, max_payload)),
+            "udp" => Box::new(NetworkBackend::new(address, max_payload)),
+            _ => return Err(TransportError::IoError(format!("Unknown transport: {}", transport))),
         };
+        let caps = backend.caps();
         Ok(Self {
             backend: Some(backend),
-            port: address.to_string(),
-            timeout,
+            timeout: Duration::from_millis(500),
             sequence: 0,
-            state: ParseState::Sync,
+            state: TransportState::Sync,
             plength: 0,
             caps,
-            init_caps: caps,
             buf: Vec::with_capacity(max_payload * 4),
             pos: 0,
             pbuf: vec![0u8; max_payload + HEADER_SIZE + CRC_SIZE],
-            read_buf: vec![0u8; 16384],
             events: Vec::new(),
         })
     }
 
     pub fn open(&mut self) -> Result<(), TransportError> {
-        if let Some(Backend::Udp(ref sock)) = self.backend {
-            // UDP: drain pending datagrams, reset state
-            let mut trash = [0u8; 4096];
-            loop {
-                match sock.recv(&mut trash) {
-                    Err(ref e)
-                        if e.kind() == std::io::ErrorKind::WouldBlock
-                            || e.kind() == std::io::ErrorKind::TimedOut =>
-                    {
-                        break;
-                    }
-                    Err(e) => return Err(TransportError::IoError(e.to_string())),
-                    _ => continue,
-                }
-            }
-            self.buf.clear();
-            self.pos = 0;
-            self.state = ParseState::Sync;
-            return Ok(());
+        if let Some(ref mut backend) = self.backend {
+            backend.open()?;
         }
-
-        // Serial path
-        self.close();
-        self.backend = Some(Self::create_serial(&self.port)?);
         self.buf.clear();
         self.pos = 0;
-        self.state = ParseState::Sync;
+        self.state = TransportState::Sync;
         Ok(())
     }
 
     pub fn close(&mut self) {
-        match &mut self.backend {
-            Some(Backend::Serial(s)) => {
-                let _ = s.flush();
-            }
-            Some(Backend::Udp(_)) => {}
-            None => {}
+        if let Some(ref mut backend) = self.backend {
+            backend.close();
         }
         self.backend = None;
     }
 
     pub fn is_connected(&self) -> bool {
         match &self.backend {
-            Some(Backend::Serial(s)) => match s.bytes_to_read() {
-                Ok(_) => true,
-                Err(e) => {
-                    log::warn!("is_connected: bytes_to_read failed: {}", e);
-                    false
-                }
-            },
-            Some(Backend::Udp(_)) => true,
+            Some(backend) => backend.is_connected(),
             None => false,
         }
     }
@@ -257,39 +151,33 @@ impl Transport {
     }
 
     pub fn set_caps(&mut self, crc: bool, seq: bool, ack: bool, events: bool, max_payload: usize) {
-        self.caps = Caps { crc, seq, ack, events, max_payload };
+        self.caps = TransportCaps { crc, seq, ack, events, max_payload };
         self.buf.clear();
         self.pos = 0;
         self.pbuf = vec![0u8; max_payload + HEADER_SIZE + CRC_SIZE];
     }
 
     pub fn reset_caps(&mut self) {
-        let c = self.init_caps;
-        self.set_caps(c.crc, c.seq, c.ack, c.events, c.max_payload);
-    }
-
-    fn calc_crc16(&self, data: &[u8]) -> u16 {
-        if self.caps.crc {
-            CRC16.checksum(data)
-        } else {
-            0
+        if let Some(ref backend) = self.backend {
+            let c = backend.caps();
+            self.set_caps(c.crc, c.seq, c.ack, c.events, c.max_payload);
         }
     }
 
-    fn calc_crc32(&self, data: &[u8]) -> u32 {
-        if self.caps.crc {
-            CRC32.checksum(data)
-        } else {
-            0
-        }
+    fn compute_crc16(&self, data: &[u8]) -> u16 {
+        if self.caps.crc { calc_crc16(data) } else { 0 }
+    }
+
+    fn compute_crc32(&self, data: &[u8]) -> u32 {
+        if self.caps.crc { calc_crc32(data) } else { 0 }
     }
 
     fn check_crc16(&self, crc: u16, data: &[u8]) -> bool {
-        !self.caps.crc || crc == CRC16.checksum(data)
+        !self.caps.crc || crc == calc_crc16(data)
     }
 
     fn check_crc32(&self, crc: u32, data: &[u8]) -> bool {
-        !self.caps.crc || crc == CRC32.checksum(data)
+        !self.caps.crc || crc == calc_crc32(data)
     }
 
     fn check_seq(&self, seq: u8, opcode: u8, flags: PacketFlags) -> bool {
@@ -298,53 +186,6 @@ impl Transport {
             || flags.contains(PacketFlags::RTX)
             || seq == self.sequence
             || opcode == Opcode::ProtoSync as u8
-    }
-
-    /// Read all available bytes from the backend into the internal buffer.
-    fn read_available(&mut self) -> Result<(), TransportError> {
-        match &mut self.backend {
-            Some(Backend::Serial(serial)) => loop {
-                match serial.bytes_to_read() {
-                    Ok(n) if n > 0 => {
-                        let to_read = (n as usize).min(self.read_buf.len());
-                        match serial.read(&mut self.read_buf[..to_read]) {
-                            Ok(n) => {
-                                self.buf.extend_from_slice(&self.read_buf[..n]);
-                            }
-                            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
-                            Err(e) => {
-                                log::warn!("read_available: serial read failed: {}", e);
-                                return Err(TransportError::IoError(e.to_string()));
-                            }
-                        }
-                    }
-                    Ok(_) => break,
-                    Err(e) => {
-                        log::warn!("read_available: bytes_to_read failed: {}", e);
-                        return Err(TransportError::IoError(e.to_string()));
-                    }
-                }
-            },
-            Some(Backend::Udp(sock)) => loop {
-                match sock.recv(&mut self.read_buf) {
-                    Ok(n) => {
-                        self.buf.extend_from_slice(&self.read_buf[..n]);
-                    }
-                    Err(ref e)
-                        if e.kind() == std::io::ErrorKind::WouldBlock
-                            || e.kind() == std::io::ErrorKind::TimedOut =>
-                    {
-                        break;
-                    }
-                    Err(e) => {
-                        log::warn!("read_available: udp recv failed: {}", e);
-                        return Err(TransportError::IoError(e.to_string()));
-                    }
-                }
-            },
-            None => return Err(TransportError::NotConnected),
-        }
-        Ok(())
     }
 
     pub fn send_packet(
@@ -370,27 +211,20 @@ impl Transport {
         self.pbuf[5] = opcode as u8;
         self.pbuf[6..8].copy_from_slice(&(length as u16).to_le_bytes());
 
-        let hdr_crc = self.calc_crc16(&self.pbuf[..HEADER_SIZE - 2]);
+        let hdr_crc = self.compute_crc16(&self.pbuf[..HEADER_SIZE - 2]);
         self.pbuf[8..10].copy_from_slice(&hdr_crc.to_le_bytes());
 
         // Payload + CRC
         if let Some(d) = data {
             self.pbuf[HEADER_SIZE..HEADER_SIZE + length].copy_from_slice(d);
-            let p_crc = self.calc_crc32(d);
+            let p_crc = self.compute_crc32(d);
             self.pbuf[HEADER_SIZE + length..HEADER_SIZE + length + CRC_SIZE]
                 .copy_from_slice(&p_crc.to_le_bytes());
         }
 
         let total = HEADER_SIZE + length + if length > 0 { CRC_SIZE } else { 0 };
         match &mut self.backend {
-            Some(Backend::Serial(s)) => {
-                s.write_all(&self.pbuf[..total])
-                    .map_err(|e| TransportError::IoError(e.to_string()))?;
-            }
-            Some(Backend::Udp(sock)) => {
-                sock.send(&self.pbuf[..total])
-                    .map_err(|e| TransportError::IoError(e.to_string()))?;
-            }
+            Some(backend) => backend.write(&self.pbuf[..total])?,
             None => return Err(TransportError::NotConnected),
         }
 
@@ -419,20 +253,15 @@ impl Transport {
             }
 
             // Read all available data from backend
-            self.read_available()?;
-
-            if self.available() == 0 {
-                std::thread::sleep(Duration::from_micros(100));
-                continue;
+            match &mut self.backend {
+                Some(backend) => backend.read(&mut self.buf)?,
+                None => return Err(TransportError::NotConnected),
             }
 
             // Run state machine
             let mut packet = match self.process() {
                 Some(p) => p,
-                None => {
-                    std::thread::sleep(Duration::from_micros(100));
-                    continue;
-                }
+                None => continue,
             };
 
             // Sequence check
@@ -563,7 +392,7 @@ impl Transport {
             }
 
             match self.state {
-                ParseState::Sync => {
+                TransportState::Sync => {
                     let d = self.data();
                     let mut i = 0;
                     while i + 1 < d.len() {
@@ -578,10 +407,10 @@ impl Transport {
                     if self.available() < 2 {
                         return None;
                     }
-                    self.state = ParseState::Header;
+                    self.state = TransportState::Header;
                 }
 
-                ParseState::Header => {
+                TransportState::Header => {
                     if self.available() < HEADER_SIZE {
                         return None;
                     }
@@ -594,15 +423,15 @@ impl Transport {
                         || !self.check_crc16(hdr_crc, &d[..HEADER_SIZE - 2])
                     {
                         self.consume(1);
-                        self.state = ParseState::Sync;
+                        self.state = TransportState::Sync;
                     } else {
                         self.plength =
                             HEADER_SIZE + length as usize + if length > 0 { CRC_SIZE } else { 0 };
-                        self.state = ParseState::Payload;
+                        self.state = TransportState::Payload;
                     }
                 }
 
-                ParseState::Payload => {
+                TransportState::Payload => {
                     if self.available() < self.plength {
                         return None;
                     }
@@ -624,7 +453,7 @@ impl Transport {
                         ]);
                         if !self.check_crc32(payload_crc, payload_data) {
                             self.consume(1);
-                            self.state = ParseState::Sync;
+                            self.state = TransportState::Sync;
                             continue;
                         }
                         Some(payload_data.to_vec())
@@ -633,7 +462,7 @@ impl Transport {
                     };
 
                     self.consume(self.plength);
-                    self.state = ParseState::Sync;
+                    self.state = TransportState::Sync;
 
                     return Some(Packet {
                         sequence: seq,
