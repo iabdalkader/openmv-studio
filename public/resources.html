@@ -73,8 +73,8 @@
   </style>
 </head>
 <body>
-  <h2>Setting up OpenMV Studio</h2>
-  <p class="subtitle">Required resources will be downloaded on first run.</p>
+  <h2 id="heading">Setting up OpenMV Studio</h2>
+  <p class="subtitle" id="subtitle">Required resources will be downloaded on first run.</p>
   <div class="resources" id="resources"></div>
   <div id="error-msg"></div>
   <div id="footer">
@@ -92,6 +92,14 @@
     var btnCancel = document.getElementById("btn-cancel");
     var errorMsg = document.getElementById("error-msg");
 
+    var mode = new URLSearchParams(window.location.search).get("mode") || "setup";
+
+    // Update heading and subtitle based on mode
+    if (mode === "update") {
+      document.getElementById("heading").textContent = "Resource Updates";
+      document.getElementById("subtitle").textContent = "Newer versions are available.";
+    }
+
     // Display names for resources (shown in UI instead of internal names)
     var displayNames = {
       "stubs": "Auto-completions",
@@ -99,16 +107,22 @@
 
     var statuses = [];
     var downloading = false;
+    var downloadStarted = false;
 
     function displayName(name) {
       return displayNames[name] || name;
     }
 
     function init() {
-      // Read initial status from the window label's data
-      // The parent passes status via a query param or we fetch it
-      invoke("cmd_check_resources").then(function(result) {
+      // In update mode, fetch manifest to compare versions accurately.
+      // In setup mode, just check local version files (fast, no network).
+      var cmd = mode === "update" ? "cmd_fetch_manifest" : "cmd_check_resources";
+      invoke(cmd).then(function(result) {
         statuses = result;
+        // In update mode, only show resources that need updating
+        if (mode === "update") {
+          statuses = statuses.filter(function(s) { return s.needs_update; });
+        }
         renderResources();
         checkAllDone();
       });
@@ -136,7 +150,7 @@
           statusEl.textContent = "Installed";
           statusEl.classList.add("done");
         } else {
-          statusEl.textContent = "Not installed";
+          statusEl.textContent = mode === "update" ? "Update available" : "Not installed";
         }
 
         header.appendChild(nameEl);
@@ -164,7 +178,10 @@
       var allDone = statuses.every(function(s) { return !s.needs_update; });
       if (allDone) {
         btnDownload.disabled = true;
-        finishSetup();
+        // In update mode, only auto-close after user triggered a download
+        if (mode === "setup" || downloadStarted) {
+          finishSetup();
+        }
       }
     }
 
@@ -205,11 +222,16 @@
         return;
       }
       downloading = true;
+      downloadStarted = true;
       btnDownload.disabled = true;
       errorMsg.textContent = "";
 
       // Fetch manifest first, then download each resource that needs it
       invoke("cmd_fetch_manifest").then(function(freshStatuses) {
+        // In update mode, only process resources that need updating
+        if (mode === "update") {
+          freshStatuses = freshStatuses.filter(function(s) { return s.needs_update; });
+        }
         statuses = freshStatuses;
         renderResources();
 
@@ -236,7 +258,14 @@
     });
 
     btnCancel.addEventListener("click", function() {
-      appWindow.close();
+      // In update mode, dismissing is fine - mark as done so app continues
+      if (mode === "update") {
+        invoke("cmd_setup_done").then(function() {
+          appWindow.close();
+        });
+      } else {
+        appWindow.close();
+      }
     });
 
     function finishSetup() {
@@ -246,7 +275,6 @@
         appWindow.close();
       });
     }
-
 
     init();
   </script>

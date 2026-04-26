@@ -961,7 +961,7 @@ pub fn run() {
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.emit("request-close", ());
-                } else if window.label() == "setup" {
+                } else if window.label() == "resources" {
                     let done = window.state::<Arc<SetupComplete>>();
                     if !done.0.load(Ordering::SeqCst) {
                         window.app_handle().exit(0);

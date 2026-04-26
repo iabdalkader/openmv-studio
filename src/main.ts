@@ -69,7 +69,7 @@ import {
 import { initSettings, loadSettings, setUiScale, openSettings } from "./settings";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openPinoutViewer } from "./pinout";
-import { openSetupWindow, type ResourceStatus } from "./setup";
+import { openResourceWindow, type ResourceStatus } from "./resources";
 
 // --- Context menu ---
 
@@ -1197,18 +1197,39 @@ initShortcuts(editor);
 initResize();
 setUiScale(state.uiScale);
 
+// --- Resource update indicator ---
+
+function showUpdateIndicator() {
+  const el = document.getElementById("status-updates");
+  if (el) {
+    el.style.display = "";
+  }
+}
+
+function hideUpdateIndicator() {
+  const el = document.getElementById("status-updates");
+  if (el) {
+    el.style.display = "none";
+  }
+}
+
+document.getElementById("status-updates")?.addEventListener("click", async () => {
+  hideUpdateIndicator();
+  await openResourceWindow("update");
+});
+
 // --- Load settings then finalize UI ---
 
 loadSettings().then(async () => {
   setUiScale(state.uiScale);
   applyTheme(state.currentThemeSetting);
 
-  // Check if resources need downloading (first run or update)
+  // Check if resources need downloading (first run)
   const status = await invoke<ResourceStatus[]>("cmd_check_resources");
   const needsSetup = status.some((s) => s.needs_update);
 
   if (needsSetup) {
-    await openSetupWindow();
+    await openResourceWindow("setup");
   }
 
   renderTabs();
@@ -1224,6 +1245,17 @@ loadSettings().then(async () => {
   if (state.showLog) {
     enableLog();
   }
+
+  // Check for resource updates in the background (non-blocking)
+  invoke<ResourceStatus[]>("cmd_fetch_manifest")
+    .then((freshStatus) => {
+      if (freshStatus.some((s) => s.needs_update)) {
+        showUpdateIndicator();
+      }
+    })
+    .catch(() => {
+      // Network unavailable - silently ignore
+    });
 });
 
 // --- Close request ---

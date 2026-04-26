@@ -7,7 +7,7 @@
     "dfu-progress",
     "settings",
     "pinout",
-    "setup"
+    "resources"
   ],
   "permissions": [
     "core:default",

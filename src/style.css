@@ -488,6 +488,8 @@ body {
 .status-dot.disconnected { background: var(--text-muted); }
 .status-item .val { color: var(--text-secondary); font-weight: 500; }
 .status-sep { width: 1px; height: 12px; background: var(--border-mid); }
+.status-updates { cursor: pointer; color: var(--accent-blue); }
+.status-updates:hover { opacity: 0.8; }
 
 /* Connect button breathes while data is flowing */
 #btn-connect.connected.alive svg { animation: btn-pulse 1.5s ease-in-out infinite; }
