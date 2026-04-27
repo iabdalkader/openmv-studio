@@ -106,7 +106,7 @@ impl Transport {
         let caps = backend.caps();
         Ok(Self {
             backend: Some(backend),
-            timeout: Duration::from_millis(500),
+            timeout: Duration::from_millis(5000),
             sequence: 0,
             state: TransportState::Sync,
             plength: 0,

@@ -405,6 +405,22 @@ fn cmd_read_channel(channel_id: u8, state: State<Arc<Mutex<AppState>>>) -> Resul
 }
 
 #[tauri::command]
+fn cmd_write_channel(
+    channel_id: u8,
+    data: Vec<u8>,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let st = state.lock().map_err(|e| e.to_string())?;
+    if let Some(ref tx) = st.cmd_tx {
+        let _ = tx.send(Command::WriteChannel {
+            id: channel_id,
+            data,
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn cmd_list_examples(
     app: tauri::AppHandle,
     board: Option<String>,
@@ -890,6 +906,7 @@ pub fn run() {
             cmd_get_memory,
             cmd_get_stats,
             cmd_read_channel,
+            cmd_write_channel,
             cmd_list_examples,
             cmd_read_file,
             cmd_write_file,

@@ -8,7 +8,7 @@
 // examples tree, sidebar navigation, and board info tab.
 
 import { invoke } from "@tauri-apps/api/core";
-import { decode as cborDecode } from "cbor-x";
+import { decode as cborDecode, encode as cborEncode } from "cbor-x";
 import { state } from "./state";
 import { wglCtx, wglWidth, wglHeight } from "./gl";
 import { hideWelcome } from "./welcome";
@@ -482,7 +482,7 @@ let lastChannelEvents: Record<number, number> = {};
 export function updateStatsUi(
   stats: Record<string, number>,
   channels: { name: string; id: number; events: number }[],
-  dynamic: { name: string; id: number }[],
+  dynamic: { name: string; id: number; flags: number }[],
 ) {
   dynamicChannels = dynamic;
 
@@ -597,16 +597,69 @@ const CBOR_KEY_VD = 8;   // data value (binary)
 // Custom 2D data extension keys
 const CBOR_KEY_W = -20;    // width
 const CBOR_KEY_H = -21;    // height
-const CBOR_KEY_FMT = -22;  // format
 const CBOR_KEY_MIN = -23;  // min
 const CBOR_KEY_MAX = -24;  // max
 
+// Widget keys
+const CBOR_KEY_W_TYPE = -30;  // widget type
+const CBOR_KEY_W_MIN = -31;   // slider min
+const CBOR_KEY_W_MAX = -32;   // slider max
+const CBOR_KEY_W_STEP = -33;  // slider step
+const CBOR_KEY_W_OPTS = -34;  // select options
+
+// Channel flags
+const CHANNEL_FLAG_WRITE = 1 << 1;
+
+// Unit -> SVG icon (14x14, currentColor)
+const UNIT_ICONS: Record<string, string> = {
+  "Cel": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M5 1.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0zM9 5v5a2.5 2.5 0 1 1-5 0V5a3 3 0 1 1 6 0zm-2 0a1 1 0 1 0-2 0v5a.5.5 0 0 0 1 0V5z" fill="currentColor"/></svg>`,
+  "%RH": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M7 1S3 5.5 3 8.5a4 4 0 0 0 8 0C11 5.5 7 1 7 1zm0 10a2.5 2.5 0 0 1-2.5-2.5c0-.3.05-.6.15-.9l2.85-3.2 2.85 3.2c.1.3.15.6.15.9A2.5 2.5 0 0 1 7 11z" fill="currentColor"/></svg>`,
+  "lux": `<svg class="ch-record-icon" viewBox="0 0 14 14"><circle cx="7" cy="7" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><line x1="7" y1="1" x2="7" y2="2.5"/><line x1="7" y1="11.5" x2="7" y2="13"/><line x1="1" y1="7" x2="2.5" y2="7"/><line x1="11.5" y1="7" x2="13" y2="7"/><line x1="2.8" y1="2.8" x2="3.8" y2="3.8"/><line x1="10.2" y1="10.2" x2="11.2" y2="11.2"/><line x1="2.8" y1="11.2" x2="3.8" y2="10.2"/><line x1="10.2" y1="3.8" x2="11.2" y2="2.8"/></g></svg>`,
+  "Pa": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M3 12V6l2-4 2 4v6m-1-3H4m6 3V4l2-2v10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  "hPa": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M3 12V6l2-4 2 4v6m-1-3H4m6 3V4l2-2v10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  "V": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M8 1L3 8h4l-1 5 5-7H7l1-5z" fill="currentColor"/></svg>`,
+  "A": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M7 2l-4 10h2l1-3h2l1 3h2L7 2zm0 3.5L8.2 8H5.8L7 5.5z" fill="currentColor"/></svg>`,
+  "deg": `<svg class="ch-record-icon" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="7" x2="7" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="2" r="1" fill="currentColor"/></svg>`,
+  "m/s": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M1 10c1.5-1 3-4 5-4s2.5 3 4 3 2.5-2 3-3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M10 4l2 1-1 2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  "mg": `<svg class="ch-record-icon" viewBox="0 0 14 14"><path d="M2 7h10M7 2v10M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+  "mdps": `<svg class="ch-record-icon" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 7l3-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M9 3l1.5.5-.5 1.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+};
+
 let chPollTimer: number | null = null;
 let chPollInterval = 500;
-let dynamicChannels: { name: string; id: number }[] = [];
+let dynamicChannels: { name: string; id: number; flags: number }[] = [];
 let channelCache: Map<string, number[]> = new Map();
 
+// Structural fingerprint of the last rendered channel layout.
+// When this changes (new channels, different records), the DOM is
+// rebuilt from scratch.  Otherwise only display widgets are patched.
+let channelSchema = "";
+
+// Queued control writes per channel.  Event handlers stage values
+// here; the actual write is sent on the next poll response so that
+// reads and writes never overlap.
+const pendingWrites: Map<number, Map<string, any>> = new Map();
+
+// Set of element IDs currently being interacted with (e.g. slider
+// mid-drag).  updateWidgets skips these to avoid fighting the user.
+const activeControls: Set<string> = new Set();
+
 export function updateChannelUi(name: string, data: number[]) {
+  const info = dynamicChannels.find((c) => c.name === name);
+  const chId = info?.id ?? 0;
+
+  // If there are queued writes for this channel, ignore the read
+  // data, flush the writes, and return.  The next read (after the
+  // firmware processes the write) will carry the clamped values.
+  const pending = pendingWrites.get(chId);
+  if (pending && pending.size > 0) {
+    for (const [recName, value] of pending) {
+      writeChannelValue(chId, recName, value);
+    }
+    pending.clear();
+    return;
+  }
+
   channelCache.set(name, data);
 
   const content = document.getElementById("channels-content");
@@ -615,10 +668,10 @@ export function updateChannelUi(name: string, data: number[]) {
     return;
   }
 
-  const channels = Array.from(channelCache.entries()).map(([n, d]) => ({
-    name: n,
-    data: d,
-  }));
+  const channels = Array.from(channelCache.entries()).map(([n, d]) => {
+    const ch = dynamicChannels.find((c) => c.name === n);
+    return { name: n, data: d, id: ch?.id ?? 0, flags: ch?.flags ?? 0 };
+  });
 
   renderChannels(content, channels);
 }
@@ -652,6 +705,8 @@ export function stopChannelsPolling() {
 export function clearChannelsCache() {
   dynamicChannels = [];
   channelCache.clear();
+  channelSchema = "";
+  pendingWrites.clear();
 
   const content = document.getElementById("channels-content");
   if (content) {
@@ -662,6 +717,8 @@ export function clearChannelsCache() {
 export function resetChannelsState() {
   dynamicChannels = [];
   channelCache.clear();
+  channelSchema = "";
+  pendingWrites.clear();
 
   const content = document.getElementById("channels-content");
 
@@ -671,125 +728,332 @@ export function resetChannelsState() {
   }
 }
 
-function renderChannels(
-  content: HTMLElement,
-  channels: { name: string; data: number[] }[],
-) {
+function queueChannelWrite(channelId: number, name: string, value: any) {
+  let pending = pendingWrites.get(channelId);
+  if (!pending) {
+    pending = new Map();
+    pendingWrites.set(channelId, pending);
+  }
+  pending.set(name, value);
+}
+
+function writeChannelValue(channelId: number, name: string, value: any) {
+  const record = new Map<number, any>();
+  record.set(CBOR_KEY_N, name);
+  record.set(CBOR_KEY_V, value);
+  const raw = new Uint8Array(cborEncode([record]));
+  // cbor-x wraps Maps with tag 259 (d9 01 03) which MicroPython
+  // cbor2 does not understand.  Strip the 3-byte tag prefix so
+  // the map is encoded as a plain CBOR map with integer keys.
+  const encoded = new Uint8Array(raw.length - 3);
+  encoded[0] = raw[0];
+  encoded.set(raw.subarray(4), 1);
+  invoke("cmd_write_channel", {
+    channelId,
+    data: Array.from(encoded),
+  });
+}
+
+// Decode all channels into a flat list of { channelId, flags, name, wtype, rec }.
+// Returns the list and a schema string that changes when the layout changes.
+function decodeChannels(
+  channels: { name: string; data: number[]; id: number; flags: number }[],
+): { schema: string; entries: { chName: string; chId: number; flags: number; name: string; wtype: string; elemId: string; rec: any }[] } {
   channels.sort((a, b) => a.name.localeCompare(b.name));
-  let html = "";
+  const schemaParts: string[] = [];
+  const entries: { chName: string; chId: number; flags: number; name: string; wtype: string; elemId: string; rec: any }[] = [];
 
   for (const ch of channels) {
-    html += `<div class="ch-channel-label">${ch.name}</div>`;
-
     const bytes = new Uint8Array(ch.data);
     let records: any[];
 
     try {
       records = cborDecode(bytes) as any[];
     } catch {
-      html += '<div class="ch-record"><span class="ch-record-name">decode error</span></div>';
       continue;
     }
 
     if (!Array.isArray(records)) {
-      html += '<div class="ch-record"><span class="ch-record-name">unexpected format</span></div>';
       continue;
     }
 
     let baseName = "";
 
-    for (const rec of records) {
+    for (let ri = 0; ri < records.length; ri++) {
+      const rec = records[ri];
+
       if (rec[CBOR_KEY_BN] !== undefined) {
         baseName = rec[CBOR_KEY_BN];
       }
 
       const name = baseName + (rec[CBOR_KEY_N] || "");
+      const wtype = rec[CBOR_KEY_W_TYPE] || "";
+      const elemId = `ch-${ch.name.replace(/[^a-zA-Z0-9]/g, "_")}-${ri}`;
 
-      if (rec[CBOR_KEY_V] !== undefined) {
-        // Scalar value
-        const val = rec[CBOR_KEY_V];
-        const unit = rec[CBOR_KEY_U] || "";
+      schemaParts.push(`${ch.name}:${name}:${wtype}`);
+      entries.push({ chName: ch.name, chId: ch.id, flags: ch.flags, name, wtype, elemId, rec });
+    }
+  }
+
+  return { schema: schemaParts.join("|"), entries };
+}
+
+// Full DOM rebuild: creates all elements and binds control handlers.
+function buildChannelsDom(
+  content: HTMLElement,
+  entries: { chName: string; chId: number; flags: number; name: string; wtype: string; elemId: string; rec: any }[],
+) {
+  let html = "";
+  const depthEntries: {
+    elemId: string; data: Uint8Array;
+    w: number; h: number; vmin: number; vmax: number;
+  }[] = [];
+  const controls: {
+    elemId: string; channelId: number; name: string;
+    wtype: string;
+  }[] = [];
+
+  let prevCh = "";
+
+  for (const e of entries) {
+    if (e.chName !== prevCh) {
+      html += `<div class="ch-channel-label">${e.chName}</div>`;
+      prevCh = e.chName;
+    }
+
+    const writable = (e.flags & CHANNEL_FLAG_WRITE) !== 0;
+
+    switch (e.wtype) {
+      case "label": {
+        const val = e.rec[CBOR_KEY_V] ?? e.rec[CBOR_KEY_VS] ?? e.rec[CBOR_KEY_VB];
+        const unit = e.rec[CBOR_KEY_U] || "";
+        const icon = UNIT_ICONS[unit] || "";
+        const display = typeof val === "number" ? val.toFixed(1) : String(val ?? "");
         html += `<div class="ch-record">` +
-          `<span class="ch-record-name">${name}</span>` +
-          `<span><span class="ch-record-value">${typeof val === "number" ? val.toFixed(1) : val}</span>` +
+          `<span class="ch-record-name">${icon}${e.name}</span>` +
+          `<span><span id="${e.elemId}" class="ch-record-value">${display}</span>` +
           `<span class="ch-record-unit">${unit}</span></span></div>`;
-      } else if (rec[CBOR_KEY_VS] !== undefined) {
-        // String value
-        html += `<div class="ch-record">` +
-          `<span class="ch-record-name">${name}</span>` +
-          `<span class="ch-record-value">${rec[CBOR_KEY_VS]}</span></div>`;
-      } else if (rec[CBOR_KEY_VB] !== undefined) {
-        // Boolean value
-        html += `<div class="ch-record">` +
-          `<span class="ch-record-name">${name}</span>` +
-          `<span class="ch-record-value">${rec[CBOR_KEY_VB] ? "true" : "false"}</span></div>`;
-      } else if (rec[CBOR_KEY_VD] !== undefined) {
-        // Binary data
-        const fmt = rec[CBOR_KEY_FMT];
-        const w = rec[CBOR_KEY_W];
-        const h = rec[CBOR_KEY_H];
+        break;
+      }
 
-        if (fmt === "depth" && w && h) {
-          const vmin = rec[CBOR_KEY_MIN] || 0;
-          const vmax = rec[CBOR_KEY_MAX] || 1;
-          const id = `ch-depth-${name.replace(/[^a-zA-Z0-9]/g, "_")}`;
-          html += `<div class="ch-record" style="flex-direction:column;align-items:stretch">` +
-            `<span class="ch-record-name">${name} (${w}x${h}, ${vmin.toFixed(0)}-${vmax.toFixed(0)}mm)</span>` +
-            `<canvas class="ch-depth-canvas" id="${id}" width="${w}" height="${h}"></canvas></div>`;
-        } else if (fmt === "jpeg" || fmt === "rgb565" || fmt === "grayscale") {
-          html += `<div class="ch-record">` +
-            `<span class="ch-record-name">${name} (${fmt} ${w}x${h})</span></div>`;
-        } else {
-          const data = rec[CBOR_KEY_VD] as Uint8Array;
-          html += `<div class="ch-record">` +
-            `<span class="ch-record-name">${name}</span>` +
-            `<span class="ch-record-value">${data.length} bytes</span></div>`;
+      case "depth": {
+        const w = e.rec[CBOR_KEY_W];
+        const h = e.rec[CBOR_KEY_H];
+        const vmin = e.rec[CBOR_KEY_MIN] || 0;
+        const vmax = e.rec[CBOR_KEY_MAX] || 1;
+        html += `<div class="ch-record" style="flex-direction:column;align-items:stretch">` +
+          `<span id="${e.elemId}-hdr" class="ch-record-name">${e.name} (${w}x${h}, ${vmin.toFixed(0)}-${vmax.toFixed(0)}mm)</span>` +
+          `<canvas class="ch-depth-canvas" id="${e.elemId}" width="${w}" height="${h}"></canvas></div>`;
+        if (e.rec[CBOR_KEY_VD]) {
+          depthEntries.push({ elemId: e.elemId, data: e.rec[CBOR_KEY_VD], w, h, vmin, vmax });
         }
+        break;
+      }
+
+      case "toggle": {
+        const checked = !!e.rec[CBOR_KEY_V];
+        const disabled = !writable ? " disabled" : "";
+        html += `<div class="ch-record">` +
+          `<span class="ch-record-name">${e.name}</span>` +
+          `<label class="settings-toggle"><input type="checkbox" id="${e.elemId}"${checked ? " checked" : ""}${disabled}>` +
+          `<span class="toggle-track"></span></label></div>`;
+        if (writable) {
+          controls.push({ elemId: e.elemId, channelId: e.chId, name: e.name, wtype: e.wtype });
+        }
+        break;
+      }
+
+      case "slider": {
+        const val = e.rec[CBOR_KEY_V] ?? 0;
+        const min = e.rec[CBOR_KEY_W_MIN] ?? 0;
+        const max = e.rec[CBOR_KEY_W_MAX] ?? 100;
+        const step = e.rec[CBOR_KEY_W_STEP] ?? 1;
+        const unit = e.rec[CBOR_KEY_U] || "";
+        const disabled = !writable ? " disabled" : "";
+        html += `<div class="ch-record" style="flex-direction:column;align-items:stretch">` +
+          `<div style="display:flex;justify-content:space-between">` +
+          `<span class="ch-record-name">${e.name}</span>` +
+          `<span class="ch-record-value"><span id="${e.elemId}-val">${val}</span>` +
+          `<span class="ch-record-unit">${unit}</span></span></div>` +
+          `<input type="range" id="${e.elemId}" min="${min}" max="${max}" step="${step}" value="${val}"${disabled}` +
+          ` style="width:100%;margin-top:4px"></div>`;
+        if (writable) {
+          controls.push({ elemId: e.elemId, channelId: e.chId, name: e.name, wtype: e.wtype });
+        }
+        break;
+      }
+
+      case "select": {
+        const val = e.rec[CBOR_KEY_V] ?? "";
+        const opts: string[] = e.rec[CBOR_KEY_W_OPTS] || [];
+        const disabled = !writable ? " disabled" : "";
+        let optHtml = "";
+        for (const opt of opts) {
+          const sel = opt === val ? " selected" : "";
+          optHtml += `<option value="${opt}"${sel}>${opt}</option>`;
+        }
+        html += `<div class="ch-record">` +
+          `<span class="ch-record-name">${e.name}</span>` +
+          `<select id="${e.elemId}" class="ch-select"${disabled}>${optHtml}</select></div>`;
+        if (writable) {
+          controls.push({ elemId: e.elemId, channelId: e.chId, name: e.name, wtype: e.wtype });
+        }
+        break;
+      }
+
+      default: {
+        const val = e.rec[CBOR_KEY_V] ?? e.rec[CBOR_KEY_VS] ?? e.rec[CBOR_KEY_VB];
+        if (val !== undefined) {
+          const unit = e.rec[CBOR_KEY_U] || "";
+          const display = typeof val === "number" ? val.toFixed(1) : String(val);
+          html += `<div class="ch-record">` +
+            `<span class="ch-record-name">${e.name}</span>` +
+            `<span><span id="${e.elemId}" class="ch-record-value">${display}</span>` +
+            `<span class="ch-record-unit">${unit}</span></span></div>`;
+        }
+        break;
       }
     }
   }
 
   content.innerHTML = html;
 
-  // Second pass: draw depth canvases
-  for (const ch of channels) {
-    const bytes = new Uint8Array(ch.data);
-    let records: any[];
+  // Draw depth canvases
+  for (const d of depthEntries) {
+    const canvas = document.getElementById(d.elemId);
+    if (canvas instanceof HTMLCanvasElement) {
+      drawDepthMap(canvas, d.data, d.w, d.h, d.vmin, d.vmax);
+    }
+  }
 
-    try {
-      records = cborDecode(bytes) as any[];
-    } catch {
+  // Bind control handlers (once)
+  for (const ctrl of controls) {
+    const el = document.getElementById(ctrl.elemId);
+
+    if (!el) {
       continue;
     }
 
-    if (!Array.isArray(records)) {
-      continue;
+    switch (ctrl.wtype) {
+      case "toggle":
+        (el as HTMLInputElement).onchange = () => {
+          queueChannelWrite(ctrl.channelId, ctrl.name, (el as HTMLInputElement).checked);
+        };
+        break;
+
+      case "slider": {
+        const valEl = document.getElementById(`${ctrl.elemId}-val`);
+        (el as HTMLInputElement).onpointerdown = () => {
+          activeControls.add(ctrl.elemId);
+        };
+        (el as HTMLInputElement).oninput = () => {
+          if (valEl) {
+            valEl.textContent = (el as HTMLInputElement).value;
+          }
+        };
+        (el as HTMLInputElement).onchange = () => {
+          activeControls.delete(ctrl.elemId);
+          queueChannelWrite(ctrl.channelId, ctrl.name, parseFloat((el as HTMLInputElement).value));
+        };
+        break;
+      }
+
+      case "select":
+        (el as HTMLSelectElement).onchange = () => {
+          queueChannelWrite(ctrl.channelId, ctrl.name, (el as HTMLSelectElement).value);
+        };
+        break;
     }
+  }
+}
 
-    let baseName = "";
-
-    for (const rec of records) {
-      if (rec[CBOR_KEY_BN] !== undefined) {
-        baseName = rec[CBOR_KEY_BN];
+// Patch all widgets in place without rebuilding the DOM.
+// Controls are updated with firmware values (e.g. clamped ranges).
+function updateWidgets(
+  entries: { chName: string; chId: number; flags: number; name: string; wtype: string; elemId: string; rec: any }[],
+) {
+  for (const e of entries) {
+    switch (e.wtype) {
+      case "label": {
+        const el = document.getElementById(e.elemId);
+        if (el) {
+          const val = e.rec[CBOR_KEY_V] ?? e.rec[CBOR_KEY_VS] ?? e.rec[CBOR_KEY_VB];
+          el.textContent = typeof val === "number" ? val.toFixed(1) : String(val ?? "");
+        }
+        break;
       }
 
-      if (rec[CBOR_KEY_VD] === undefined || rec[CBOR_KEY_FMT] !== "depth") {
-        continue;
+      case "depth": {
+        const canvas = document.getElementById(e.elemId);
+        if (canvas instanceof HTMLCanvasElement && e.rec[CBOR_KEY_VD]) {
+          const w = e.rec[CBOR_KEY_W];
+          const h = e.rec[CBOR_KEY_H];
+          const vmin = e.rec[CBOR_KEY_MIN] || 0;
+          const vmax = e.rec[CBOR_KEY_MAX] || 1;
+          const hdr = document.getElementById(`${e.elemId}-hdr`);
+          if (hdr) {
+            hdr.textContent = `${e.name} (${w}x${h}, ${vmin.toFixed(0)}-${vmax.toFixed(0)}mm)`;
+          }
+          drawDepthMap(canvas, e.rec[CBOR_KEY_VD], w, h, vmin, vmax);
+        }
+        break;
       }
 
-      const name = baseName + (rec[CBOR_KEY_N] || "");
-      const w = rec[CBOR_KEY_W];
-      const h = rec[CBOR_KEY_H];
-      const vmin = rec[CBOR_KEY_MIN] || 0;
-      const vmax = rec[CBOR_KEY_MAX] || 1;
-      const data = rec[CBOR_KEY_VD] as Uint8Array;
-      const id = `ch-depth-${name.replace(/[^a-zA-Z0-9]/g, "_")}`;
-      const canvas = document.getElementById(id) as HTMLCanvasElement | null;
+      case "toggle": {
+        if (activeControls.has(e.elemId)) {
+          break;
+        }
+        const el = document.getElementById(e.elemId) as HTMLInputElement | null;
+        if (el) {
+          el.checked = !!e.rec[CBOR_KEY_V];
+        }
+        break;
+      }
 
-      if (canvas) {
-        drawDepthMap(canvas, data, w, h, vmin, vmax);
+      case "slider": {
+        if (activeControls.has(e.elemId)) {
+          break;
+        }
+        const el = document.getElementById(e.elemId) as HTMLInputElement | null;
+        if (el) {
+          const val = String(e.rec[CBOR_KEY_V] ?? 0);
+          el.min = String(e.rec[CBOR_KEY_W_MIN] ?? 0);
+          el.max = String(e.rec[CBOR_KEY_W_MAX] ?? 100);
+          el.step = String(e.rec[CBOR_KEY_W_STEP] ?? 1);
+          el.value = val;
+          const valEl = document.getElementById(`${e.elemId}-val`);
+          if (valEl) {
+            valEl.textContent = val;
+          }
+        }
+        break;
+      }
+
+      case "select": {
+        if (activeControls.has(e.elemId)) {
+          break;
+        }
+        const el = document.getElementById(e.elemId) as HTMLSelectElement | null;
+        if (el) {
+          el.value = String(e.rec[CBOR_KEY_V] ?? "");
+        }
+        break;
       }
     }
+  }
+}
+
+function renderChannels(
+  content: HTMLElement,
+  channels: { name: string; data: number[]; id: number; flags: number }[],
+) {
+  const { schema, entries } = decodeChannels(channels);
+
+  if (schema !== channelSchema) {
+    channelSchema = schema;
+    buildChannelsDom(content, entries);
+  } else {
+    updateWidgets(entries);
   }
 }
 
@@ -830,6 +1094,10 @@ function drawDepthMap(
   vmin: number,
   vmax: number,
 ) {
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    return;
+  }
+
   const ctx = canvas.getContext("2d");
 
   if (!ctx) {

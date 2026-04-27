@@ -1013,7 +1013,7 @@ function handleStats(view: DataView) {
 
   const chCount = view.getUint8(32);
   const channels: { name: string; id: number; events: number }[] = [];
-  const dynamic: { name: string; id: number }[] = [];
+  const dynamic: { name: string; id: number; flags: number }[] = [];
 
   for (let i = 0; i < chCount; i++) {
     const o = 36 + i * 20;
@@ -1037,7 +1037,7 @@ function handleStats(view: DataView) {
     channels.push({ name, id, events });
 
     if (flags & 0x20) {
-      dynamic.push({ name, id });
+      dynamic.push({ name, id, flags });
     }
   }
 

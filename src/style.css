@@ -615,6 +615,7 @@ input[type="range"]::-webkit-slider-thumb {
 .ch-record-name { color: var(--text-tertiary); }
 .ch-record-value { color: var(--text-secondary); font-family: var(--font-code); font-weight: 500; }
 .ch-record-unit { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+.ch-record-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; opacity: 0.5; }
 .ch-depth-canvas {
   width: 100%; max-height: 240px; object-fit: contain;
   background: var(--bg-deep);

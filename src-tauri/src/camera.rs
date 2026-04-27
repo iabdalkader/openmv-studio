@@ -37,6 +37,7 @@ pub enum Command {
     GetMemory,
     GetStats,
     ReadChannel(u8),
+    WriteChannel { id: u8, data: Vec<u8> },
     ReadStdout,
     ReadFrame,
     UpdateChannels,
@@ -57,6 +58,7 @@ impl std::fmt::Debug for Command {
             Command::GetMemory => write!(f, "GetMemory"),
             Command::GetStats => write!(f, "GetStats"),
             Command::ReadChannel(id) => write!(f, "ReadChannel({})", id),
+            Command::WriteChannel { id, .. } => write!(f, "WriteChannel({})", id),
             Command::ReadStdout => write!(f, "ReadStdout"),
             Command::ReadFrame => write!(f, "ReadFrame"),
             Command::UpdateChannels => write!(f, "UpdateChannels"),
@@ -525,12 +527,15 @@ impl Camera {
     }
 
     fn read_channel(&mut self, id: u8, tx: &Channel) -> Result<(), TransportError> {
-        let name = self
+        let name = match self
             .channels
             .iter()
             .find(|(_, ci)| ci.id == id)
             .map(|(n, _)| n.clone())
-            .ok_or_else(|| TransportError::IoError(format!("Channel {} not found", id)))?;
+        {
+            Some(n) => n,
+            None => return Ok(()),
+        };
 
         let size = self.ch_size(id)?;
         if size == 0 {
@@ -609,6 +614,7 @@ impl Camera {
             Command::GetMemory => self.get_memory(tx),
             Command::GetStats => self.get_stats(tx),
             Command::ReadChannel(id) => self.read_channel(*id, tx),
+            Command::WriteChannel { id, data } => self.ch_write(*id, data),
             Command::ReadStdout => self.read_stdout(tx),
             Command::ReadFrame => self.read_frame(tx),
             Command::UpdateChannels => self.update_channels(),
