@@ -218,6 +218,10 @@
       <label class="switch"><input type="checkbox" id="set-filter-examples"><span class="switch-slider"></span></label>
     </div>
     <div class="pref-row">
+      <span class="pref-label">Development Channel</span>
+      <label class="switch"><input type="checkbox" id="set-dev-channel"><span class="switch-slider"></span></label>
+    </div>
+    <div class="pref-row">
       <span class="pref-label"></span>
       <button class="pref-btn" id="set-reset">Reset All Settings</button>
     </div>
@@ -353,6 +357,9 @@
       // Filter examples
       document.getElementById("set-filter-examples").checked = d.filterExamples;
 
+      // Development channel
+      document.getElementById("set-dev-channel").checked = (d.resourceChannel === "development");
+
       // Editor
       document.getElementById("set-font-size").value = d.fontSize;
       document.getElementById("set-tab-size").value = d.tabSize;
@@ -435,6 +442,11 @@
     // Filter examples
     document.getElementById("set-filter-examples").onchange = function() {
       changed("filterExamples", this.checked);
+    };
+
+    // Development channel
+    document.getElementById("set-dev-channel").onchange = function() {
+      changed("resourceChannel", this.checked ? "development" : "stable");
     };
 
     // Font size

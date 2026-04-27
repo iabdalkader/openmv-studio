@@ -3,6 +3,7 @@
 // This software is licensed under terms that can be found in the
 // LICENSE file in the root directory of this software component.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -21,10 +22,10 @@ pub const DOWNLOADED_RESOURCES: &[&str] = &["boards", "examples", "firmware", "s
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Manifest {
     pub schema_version: u32,
-    pub boards: ResourceEntry,
-    pub examples: ResourceEntry,
-    pub firmware: ResourceEntry,
-    pub stubs: ResourceEntry,
+    pub boards: HashMap<String, ResourceEntry>,
+    pub examples: HashMap<String, ResourceEntry>,
+    pub firmware: HashMap<String, ResourceEntry>,
+    pub stubs: HashMap<String, ResourceEntry>,
     pub tools: ToolsEntry,
 }
 
@@ -39,7 +40,7 @@ pub struct ResourceEntry {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ToolsEntry {
     pub version: String,
-    pub platforms: std::collections::HashMap<String, PlatformAsset>,
+    pub platforms: HashMap<String, PlatformAsset>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,6 +89,17 @@ fn resources_dir(app: &AppHandle) -> Result<PathBuf, String> {
 fn installed_version(dir: &Path, name: &str) -> Option<String> {
     let version_file = dir.join(name).join("version");
     std::fs::read_to_string(version_file).ok().map(|s| s.trim().to_string())
+}
+
+/// Detect channel from a version string.
+/// "v4.8.1-483" (has dash after semver) -> "development"
+/// "v4.8.1" (clean semver) -> "stable"
+fn version_channel(version: &str) -> &str {
+    if version.trim_start_matches('v').contains('-') {
+        "development"
+    } else {
+        "stable"
+    }
 }
 
 fn detect_platform() -> Result<String, String> {
@@ -396,18 +408,31 @@ fn extract_tools_archive(
 // -- Tauri commands ----------------------------------------------------------
 
 #[tauri::command]
-pub async fn cmd_check_resources(app: AppHandle) -> Result<Vec<ResourceStatus>, String> {
+pub async fn cmd_check_resources(
+    app: AppHandle,
+    channel: Option<String>,
+) -> Result<Vec<ResourceStatus>, String> {
+    let channel = channel.as_deref().unwrap_or("stable");
     let dir = resources_dir(&app)?;
     cleanup_stale(&dir);
 
     let mut statuses = Vec::new();
     for &name in DOWNLOADED_RESOURCES {
         let version = installed_version(&dir, name);
+        // Tools have no channel split - only check if installed
+        let needs_update = if name == "tools" {
+            version.is_none()
+        } else {
+            match &version {
+                None => true,
+                Some(v) => version_channel(v) != channel,
+            }
+        };
         statuses.push(ResourceStatus {
             name: name.to_string(),
-            installed_version: version.clone(),
+            installed_version: version,
             available_version: None,
-            needs_update: version.is_none(),
+            needs_update,
         });
     }
 
@@ -415,7 +440,11 @@ pub async fn cmd_check_resources(app: AppHandle) -> Result<Vec<ResourceStatus>, 
 }
 
 #[tauri::command]
-pub async fn cmd_fetch_manifest(app: AppHandle) -> Result<Vec<ResourceStatus>, String> {
+pub async fn cmd_fetch_manifest(
+    app: AppHandle,
+    channel: Option<String>,
+) -> Result<Vec<ResourceStatus>, String> {
+    let channel = channel.as_deref().unwrap_or("stable");
     let dir = resources_dir(&app)?;
     let manifest = fetch_manifest().await?;
 
@@ -426,46 +455,32 @@ pub async fn cmd_fetch_manifest(app: AppHandle) -> Result<Vec<ResourceStatus>, S
     let _ = std::fs::write(&manifest_path, json);
 
     let platform = detect_platform()?;
-
     let mut statuses = Vec::new();
 
-    // Boards
-    let installed = installed_version(&dir, "boards");
-    statuses.push(ResourceStatus {
-        name: "boards".to_string(),
-        needs_update: installed.as_deref() != Some(&manifest.boards.version),
-        installed_version: installed,
-        available_version: Some(manifest.boards.version),
-    });
+    // Channeled resources: boards, examples, firmware, stubs
+    let resources: &[(&str, &HashMap<String, ResourceEntry>)] = &[
+        ("boards", &manifest.boards),
+        ("examples", &manifest.examples),
+        ("firmware", &manifest.firmware),
+        ("stubs", &manifest.stubs),
+    ];
 
-    // Examples
-    let installed = installed_version(&dir, "examples");
-    statuses.push(ResourceStatus {
-        name: "examples".to_string(),
-        needs_update: installed.as_deref() != Some(&manifest.examples.version),
-        installed_version: installed,
-        available_version: Some(manifest.examples.version),
-    });
+    for &(name, entries) in resources {
+        let installed = installed_version(&dir, name);
+        let entry = entries.get(channel);
+        statuses.push(ResourceStatus {
+            name: name.to_string(),
+            needs_update: match (&installed, &entry) {
+                (Some(v), Some(e)) => v != &e.version,
+                (None, Some(_)) => true,
+                _ => false,
+            },
+            installed_version: installed,
+            available_version: entry.map(|e| e.version.clone()),
+        });
+    }
 
-    // Firmware
-    let installed = installed_version(&dir, "firmware");
-    statuses.push(ResourceStatus {
-        name: "firmware".to_string(),
-        needs_update: installed.as_deref() != Some(&manifest.firmware.version),
-        installed_version: installed,
-        available_version: Some(manifest.firmware.version),
-    });
-
-    // Stubs
-    let installed = installed_version(&dir, "stubs");
-    statuses.push(ResourceStatus {
-        name: "stubs".to_string(),
-        needs_update: installed.as_deref() != Some(&manifest.stubs.version),
-        installed_version: installed,
-        available_version: Some(manifest.stubs.version),
-    });
-
-    // Tools
+    // Tools (no channel split)
     let installed = installed_version(&dir, "tools");
     let tools_available = manifest.tools.platforms.contains_key(&platform);
     statuses.push(ResourceStatus {
@@ -487,7 +502,12 @@ pub async fn cmd_fetch_manifest(app: AppHandle) -> Result<Vec<ResourceStatus>, S
 }
 
 #[tauri::command]
-pub async fn cmd_download_resource(app: AppHandle, name: String) -> Result<(), String> {
+pub async fn cmd_download_resource(
+    app: AppHandle,
+    name: String,
+    channel: Option<String>,
+) -> Result<(), String> {
+    let channel = channel.as_deref().unwrap_or("stable");
     let dir = resources_dir(&app)?;
 
     // Load cached manifest
@@ -498,21 +518,21 @@ pub async fn cmd_download_resource(app: AppHandle, name: String) -> Result<(), S
         .map_err(|e| format!("Failed to parse cached manifest: {}", e))?;
 
     match name.as_str() {
-        "boards" => {
-            let entry = &manifest.boards;
-            download_resource(&app, "boards", &entry.url, &entry.sha256, entry.size, &entry.version).await
-        }
-        "examples" => {
-            let entry = &manifest.examples;
-            download_resource(&app, "examples", &entry.url, &entry.sha256, entry.size, &entry.version).await
-        }
-        "firmware" => {
-            let entry = &manifest.firmware;
-            download_resource(&app, "firmware", &entry.url, &entry.sha256, entry.size, &entry.version).await
-        }
-        "stubs" => {
-            let entry = &manifest.stubs;
-            download_resource(&app, "stubs", &entry.url, &entry.sha256, entry.size, &entry.version).await
+        "boards" | "examples" | "firmware" | "stubs" => {
+            let entries = match name.as_str() {
+                "boards" => &manifest.boards,
+                "examples" => &manifest.examples,
+                "firmware" => &manifest.firmware,
+                "stubs" => &manifest.stubs,
+                _ => unreachable!(),
+            };
+            let entry = entries
+                .get(channel)
+                .ok_or_else(|| format!("No {} entry for channel: {}", name, channel))?;
+            download_resource(
+                &app, &name, &entry.url, &entry.sha256, entry.size, &entry.version,
+            )
+            .await
         }
         "tools" => {
             let platform = detect_platform()?;

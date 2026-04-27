@@ -9,7 +9,7 @@
 
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { Store } from "@tauri-apps/plugin-store";
 import {
   WebviewWindow,
@@ -101,6 +101,7 @@ export async function saveSettings() {
       showLog: state.showLog,
       transportType: state.transportType,
       networkAddress: state.networkAddress,
+      resourceChannel: state.resourceChannel,
     });
 
     await s.set("editor", {
@@ -145,6 +146,7 @@ export async function loadSettings() {
       showLog?: boolean;
       transportType?: "serial" | "udp";
       networkAddress?: string;
+      resourceChannel?: "stable" | "development";
     }>("ui");
 
     if (ui?.scale) {
@@ -179,6 +181,10 @@ export async function loadSettings() {
 
     if (ui?.networkAddress) {
       state.networkAddress = ui.networkAddress;
+    }
+
+    if (ui?.resourceChannel) {
+      state.resourceChannel = ui.resourceChannel;
     }
 
     if (ui?.gridCols) {
@@ -329,6 +335,7 @@ export async function openSettings() {
     transportType: state.transportType,
     networkAddress: state.networkAddress,
     serialPort: state.serialPort,
+    resourceChannel: state.resourceChannel,
     ioIntervalMs: state.ioIntervalMs,
     fontSize: edOpts.get(monaco.editor.EditorOption.fontSize),
     tabSize: edOpts.get(monaco.editor.EditorOption.tabSize),
@@ -408,6 +415,11 @@ export async function openSettings() {
         state.ioIntervalMs = value;
         scheduleSaveSettings();
         break;
+      case "resourceChannel":
+        state.resourceChannel = value;
+        scheduleSaveSettings();
+        emit("channel-changed", value);
+        break;
       case "shortcutSet":
         shortcutOverrides[value.id] = value.value;
         scheduleSaveSettings();
@@ -446,6 +458,7 @@ async function resetAllSettings() {
   state.splitLocked = false;
   state.transportType = "serial";
   state.networkAddress = "";
+  state.resourceChannel = "stable";
   document.getElementById("btn-lock-split")?.classList.remove("active");
   setShortcutOverrides({});
 

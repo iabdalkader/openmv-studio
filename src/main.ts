@@ -1217,10 +1217,24 @@ function hideUpdateIndicator() {
 
 document.getElementById("status-updates")?.addEventListener("click", async () => {
   hideUpdateIndicator();
-  const downloaded = await openResourceWindow("update");
+  const downloaded = await openResourceWindow("update", state.resourceChannel);
   if (downloaded) {
     await relaunch();
   }
+});
+
+listen("channel-changed", () => {
+  invoke<ResourceStatus[]>("cmd_fetch_manifest", {
+    channel: state.resourceChannel,
+  })
+    .then((freshStatus) => {
+      if (freshStatus.some((s) => s.needs_update)) {
+        showUpdateIndicator();
+      } else {
+        hideUpdateIndicator();
+      }
+    })
+    .catch(() => {});
 });
 
 // --- Load settings then finalize UI ---
@@ -1230,11 +1244,13 @@ loadSettings().then(async () => {
   applyTheme(state.currentThemeSetting);
 
   // Check if resources need downloading (first run)
-  const status = await invoke<ResourceStatus[]>("cmd_check_resources");
+  const status = await invoke<ResourceStatus[]>("cmd_check_resources", {
+    channel: state.resourceChannel,
+  });
   const needsSetup = status.some((s) => s.needs_update);
 
   if (needsSetup) {
-    const downloaded = await openResourceWindow("setup");
+    const downloaded = await openResourceWindow("setup", state.resourceChannel);
     if (downloaded) {
       await relaunch();
     }
@@ -1254,7 +1270,9 @@ loadSettings().then(async () => {
   }
 
   // Check for resource updates in the background (non-blocking)
-  invoke<ResourceStatus[]>("cmd_fetch_manifest")
+  invoke<ResourceStatus[]>("cmd_fetch_manifest", {
+    channel: state.resourceChannel,
+  })
     .then((freshStatus) => {
       if (freshStatus.some((s) => s.needs_update)) {
         showUpdateIndicator();

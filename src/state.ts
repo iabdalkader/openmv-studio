@@ -24,6 +24,7 @@ export const state = {
   serialPort: "" as string,
   transportType: "serial" as "serial" | "udp",
   networkAddress: "openmv.local:5555" as string,
+  resourceChannel: "stable" as "stable" | "development",
 };
 
 // Callback slot -- settings.ts fills this during init.

@@ -21,12 +21,13 @@ export interface ResourceStatus {
 // Returns true if resources were downloaded, false if dismissed.
 export async function openResourceWindow(
   mode: "setup" | "update" = "setup",
+  channel: string = "stable",
 ): Promise<boolean> {
   const scale = state.uiScale;
   const title =
     mode === "update" ? "Resource Updates" : "OpenMV Studio Setup";
   const win = new WebviewWindow("resources", {
-    url: `resources.html?mode=${mode}`,
+    url: `resources.html?mode=${mode}&channel=${channel}`,
     title,
     width: Math.round(520 * scale),
     height: Math.round(420 * scale),

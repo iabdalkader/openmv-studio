@@ -92,7 +92,9 @@
     var btnCancel = document.getElementById("btn-cancel");
     var errorMsg = document.getElementById("error-msg");
 
-    var mode = new URLSearchParams(window.location.search).get("mode") || "setup";
+    var params = new URLSearchParams(window.location.search);
+    var mode = params.get("mode") || "setup";
+    var channel = params.get("channel") || "stable";
 
     // Update heading and subtitle based on mode
     if (mode === "update") {
@@ -117,7 +119,7 @@
       // In update mode, fetch manifest to compare versions accurately.
       // In setup mode, just check local version files (fast, no network).
       var cmd = mode === "update" ? "cmd_fetch_manifest" : "cmd_check_resources";
-      invoke(cmd).then(function(result) {
+      invoke(cmd, { channel: channel }).then(function(result) {
         statuses = result;
         // In update mode, only show resources that need updating
         if (mode === "update") {
@@ -227,7 +229,7 @@
       errorMsg.textContent = "";
 
       // Fetch manifest first, then download each resource that needs it
-      invoke("cmd_fetch_manifest").then(function(freshStatuses) {
+      invoke("cmd_fetch_manifest", { channel: channel }).then(function(freshStatuses) {
         // In update mode, only process resources that need updating
         if (mode === "update") {
           freshStatuses = freshStatuses.filter(function(s) { return s.needs_update; });
@@ -241,7 +243,7 @@
         for (var i = 0; i < pending.length; i++) {
           (function(name) {
             chain = chain.then(function() {
-              return invoke("cmd_download_resource", { name: name });
+              return invoke("cmd_download_resource", { name: name, channel: channel });
             });
           })(pending[i].name);
         }
