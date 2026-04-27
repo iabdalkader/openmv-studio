@@ -140,18 +140,17 @@ package_boards() {
     local dev_version
     dev_version=$(git_describe_version "$src")
     echo "Boards development: ${dev_version}"
-    local dev_name="boards-${dev_version}"
-    cp -r "$src" "$TMPDIR/${dev_name}"
-    rm -rf "$TMPDIR/${dev_name}/.git" "$TMPDIR/${dev_name}/.gitignore"
-    make_archive "$dev_name" "$TMPDIR/${dev_name}"
+    cp -r "$src" "$TMPDIR/boards-dev"
+    rm -rf "$TMPDIR/boards-dev/.git" "$TMPDIR/boards-dev/.gitignore"
+    make_archive "boards-dev" "$TMPDIR/boards-dev"
+    echo "$dev_version" > "${OUT_DIR}/boards-dev.version"
 
     # Now checkout stable tag and package
     git -C "$src" fetch --depth 1 origin tag "$stable_version" --quiet
     git -C "$src" checkout "$stable_version" --quiet
     rm -rf "$src/.git" "$src/.gitignore"
-    local stable_name="boards-${stable_version}"
-    mv "$src" "$TMPDIR/${stable_name}"
-    make_archive "$stable_name" "$TMPDIR/${stable_name}"
+    make_archive "boards" "$src"
+    echo "$stable_version" > "${OUT_DIR}/boards.version"
 }
 
 package_examples() {
@@ -163,18 +162,18 @@ package_examples() {
     # Development: package from HEAD first (git_describe_version deepens as needed)
     DEV_FW_VERSION=$(git_describe_version "$TMPDIR/openmv")
     echo "Development firmware version: ${DEV_FW_VERSION}"
-    local dev_name="examples-${DEV_FW_VERSION}"
-    cp -r "$TMPDIR/openmv/scripts/examples" "$TMPDIR/${dev_name}"
-    make_archive "$dev_name" "$TMPDIR/${dev_name}"
-    rm -rf "$TMPDIR/${dev_name}"
+    cp -r "$TMPDIR/openmv/scripts/examples" "$TMPDIR/examples-dev"
+    make_archive "examples-dev" "$TMPDIR/examples-dev"
+    echo "$DEV_FW_VERSION" > "${OUT_DIR}/examples-dev.version"
+    rm -rf "$TMPDIR/examples-dev"
 
     # Stable: fetch and checkout stable tag
     git -C "$TMPDIR/openmv" fetch --depth 1 origin tag "$STABLE_FW_TAG" --quiet
     git -C "$TMPDIR/openmv" checkout "$STABLE_FW_TAG" --quiet
-    local stable_name="examples-${STABLE_FW_VERSION}"
-    cp -r "$TMPDIR/openmv/scripts/examples" "$TMPDIR/${stable_name}"
-    make_archive "$stable_name" "$TMPDIR/${stable_name}"
-    rm -rf "$TMPDIR/${stable_name}"
+    cp -r "$TMPDIR/openmv/scripts/examples" "$TMPDIR/examples"
+    make_archive "examples" "$TMPDIR/examples"
+    echo "$STABLE_FW_VERSION" > "${OUT_DIR}/examples.version"
+    rm -rf "$TMPDIR/examples"
 }
 
 package_stubs() {
@@ -189,24 +188,24 @@ package_stubs() {
     local dev_version
     dev_version=$(git_describe_version "$TMPDIR/openmv-doc")
     echo "Stubs development: ${dev_version}"
-    local dev_name="stubs-${dev_version}"
-    mkdir -p "$TMPDIR/${dev_name}"
+    mkdir -p "$TMPDIR/stubs-dev"
     python3 "$TMPDIR/openmv-doc/genpyi.py" \
         --docs-dir "$TMPDIR/openmv-doc/docs/_sources/library/" \
-        --pyi-dir "$TMPDIR/${dev_name}"
-    make_archive "$dev_name" "$TMPDIR/${dev_name}"
-    rm -rf "$TMPDIR/${dev_name}"
+        --pyi-dir "$TMPDIR/stubs-dev"
+    make_archive "stubs-dev" "$TMPDIR/stubs-dev"
+    echo "$dev_version" > "${OUT_DIR}/stubs-dev.version"
+    rm -rf "$TMPDIR/stubs-dev"
 
     # Stable: fetch and checkout stable tag
     git -C "$TMPDIR/openmv-doc" fetch --depth 1 origin tag "$STABLE_FW_TAG" --quiet
     git -C "$TMPDIR/openmv-doc" checkout "$STABLE_FW_TAG" --quiet
-    local stable_name="stubs-${STABLE_FW_VERSION}"
-    mkdir -p "$TMPDIR/${stable_name}"
+    mkdir -p "$TMPDIR/stubs"
     python3 "$TMPDIR/openmv-doc/genpyi.py" \
         --docs-dir "$TMPDIR/openmv-doc/docs/_sources/library/" \
-        --pyi-dir "$TMPDIR/${stable_name}"
-    make_archive "$stable_name" "$TMPDIR/${stable_name}"
-    rm -rf "$TMPDIR/${stable_name}"
+        --pyi-dir "$TMPDIR/stubs"
+    make_archive "stubs" "$TMPDIR/stubs"
+    echo "$STABLE_FW_VERSION" > "${OUT_DIR}/stubs.version"
+    rm -rf "$TMPDIR/stubs"
 }
 
 package_firmware() {
@@ -215,52 +214,52 @@ package_firmware() {
     resolve_stable_fw_tag
 
     # Stable firmware
-    local stable_name="firmware-${STABLE_FW_VERSION}"
-    mkdir -p "$TMPDIR/${stable_name}"
+    mkdir -p "$TMPDIR/firmware"
 
     gh release download "$STABLE_FW_TAG" \
         --repo "$FIRMWARE_GH_REPO" \
-        --dir "$TMPDIR/${stable_name}" \
+        --dir "$TMPDIR/firmware" \
         --pattern "*.zip" &>/dev/null || true
 
-    for zip in "$TMPDIR/${stable_name}"/*.zip; do
+    for zip in "$TMPDIR/firmware"/*.zip; do
         [ -f "$zip" ] || continue
-        unzip -q -o "$zip" -d "$TMPDIR/${stable_name}"
+        unzip -q -o "$zip" -d "$TMPDIR/firmware"
         rm "$zip"
     done
 
     local count
-    count=$(find "$TMPDIR/${stable_name}" -type f | wc -l | tr -d ' ')
+    count=$(find "$TMPDIR/firmware" -type f | wc -l | tr -d ' ')
     if [ "$count" -eq 0 ]; then
         echo "ERROR: No firmware assets found in release $STABLE_FW_TAG" >&2
         return 1
     fi
     echo "Stable: ${count} firmware files"
-    make_archive "$stable_name" "$TMPDIR/${stable_name}"
+    make_archive "firmware" "$TMPDIR/firmware"
+    echo "$STABLE_FW_VERSION" > "${OUT_DIR}/firmware.version"
 
     # Development firmware
     # DEV_FW_VERSION was set by package_examples (from git describe on openmv)
-    local dev_name="firmware-${DEV_FW_VERSION}"
-    mkdir -p "$TMPDIR/${dev_name}"
+    mkdir -p "$TMPDIR/firmware-dev"
 
     gh release download "development" \
         --repo "$FIRMWARE_GH_REPO" \
-        --dir "$TMPDIR/${dev_name}" \
+        --dir "$TMPDIR/firmware-dev" \
         --pattern "*.zip" &>/dev/null || true
 
-    for zip in "$TMPDIR/${dev_name}"/*.zip; do
+    for zip in "$TMPDIR/firmware-dev"/*.zip; do
         [ -f "$zip" ] || continue
-        unzip -q -o "$zip" -d "$TMPDIR/${dev_name}"
+        unzip -q -o "$zip" -d "$TMPDIR/firmware-dev"
         rm "$zip"
     done
 
-    count=$(find "$TMPDIR/${dev_name}" -type f | wc -l | tr -d ' ')
+    count=$(find "$TMPDIR/firmware-dev" -type f | wc -l | tr -d ' ')
     if [ "$count" -eq 0 ]; then
         echo "WARNING: No dev firmware assets found" >&2
     else
         echo "Development: ${count} firmware files"
     fi
-    make_archive "$dev_name" "$TMPDIR/${dev_name}"
+    make_archive "firmware-dev" "$TMPDIR/firmware-dev"
+    echo "$DEV_FW_VERSION" > "${OUT_DIR}/firmware-dev.version"
 }
 
 # --- Manifest generation -----------------------------------------------------
@@ -270,37 +269,27 @@ package_firmware() {
 emit_resource_entry() {
     local name="$1"
 
-    # Find stable and dev archives
     local stable_archive=""
     local dev_archive=""
 
-    for f in "${OUT_DIR}"/${name}-*.tar.xz; do
-        [ -f "$f" ] || continue
-        local base
-        base=$(basename "$f")
-        local ver="${base%.tar.xz}"
-        ver="${ver#${name}-}"
-        # Version with a dash after stripping leading v is development
-        local stripped="${ver#v}"
-        if [[ "$stripped" == *-* ]]; then
-            dev_archive="$f"
-        else
-            stable_archive="$f"
-        fi
-    done
+    # Both channels use fixed filenames to avoid accumulating old archives
+    if [ -f "${OUT_DIR}/${name}-dev.tar.xz" ]; then
+        dev_archive="${OUT_DIR}/${name}-dev.tar.xz"
+    fi
+    if [ -f "${OUT_DIR}/${name}.tar.xz" ]; then
+        stable_archive="${OUT_DIR}/${name}.tar.xz"
+    fi
 
     local first=true
 
     printf '  "%s": {\n' "$name"
 
     if [ -n "$stable_archive" ]; then
-        local sbase sver
-        sbase=$(basename "$stable_archive")
-        sver="${sbase%.tar.xz}"
-        sver="${sver#${name}-}"
+        local sver
+        sver=$(cat "${OUT_DIR}/${name}.version")
         printf '    "stable": {\n'
         printf '      "version": "%s",\n' "$sver"
-        printf '      "url": "%s/%s",\n' "$STUDIO_BASE_URL" "$sbase"
+        printf '      "url": "%s/%s.tar.xz",\n' "$STUDIO_BASE_URL" "$name"
         printf '      "sha256": "%s",\n' "$(sha256 "$stable_archive")"
         printf '      "size": %s\n' "$(filesize "$stable_archive")"
         printf '    }'
@@ -311,13 +300,11 @@ emit_resource_entry() {
         if [ "$first" = false ]; then
             printf ',\n'
         fi
-        local dbase dver
-        dbase=$(basename "$dev_archive")
-        dver="${dbase%.tar.xz}"
-        dver="${dver#${name}-}"
+        local dver
+        dver=$(cat "${OUT_DIR}/${name}-dev.version")
         printf '    "development": {\n'
         printf '      "version": "%s",\n' "$dver"
-        printf '      "url": "%s/%s",\n' "$STUDIO_BASE_URL" "$dbase"
+        printf '      "url": "%s/%s-dev.tar.xz",\n' "$STUDIO_BASE_URL" "$name"
         printf '      "sha256": "%s",\n' "$(sha256 "$dev_archive")"
         printf '      "size": %s\n' "$(filesize "$dev_archive")"
         printf '    }'
