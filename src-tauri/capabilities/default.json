@@ -29,6 +29,10 @@
     "fs:allow-exists",
     "fs:allow-app-read",
     "fs:allow-app-write",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "$APPDATA/resources/**" }]
+    },
     "process:allow-restart"
   ]
 }
