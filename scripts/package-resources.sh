@@ -246,20 +246,29 @@ package_firmware() {
     make_archive "firmware" "$TMPDIR/firmware"
     echo "$STABLE_FW_VERSION" > "${OUT_DIR}/firmware.version"
 
-    # Development firmware
-    # DEV_FW_VERSION was set by package_examples (from git describe on openmv)
+    # Development firmware: the dev release publishes one zip per board
+    # (firmware_<BOARD>.zip) with files at the zip root (no <BOARD>/ wrapper).
+    # Extract each into firmware-dev/<BOARD>/ so the on-disk layout matches
+    # the stable archive (which already wraps every board in <BOARD>/).
+    # DEV_FW_VERSION was set by package_examples (from git describe on openmv).
     mkdir -p "$TMPDIR/firmware-dev"
 
+    local dl_dir="$TMPDIR/firmware-dev-zips"
+    mkdir -p "$dl_dir"
     gh release download "development" \
         --repo "$FIRMWARE_GH_REPO" \
-        --dir "$TMPDIR/firmware-dev" \
+        --dir "$dl_dir" \
         --pattern "*.zip" &>/dev/null || true
 
-    for zip in "$TMPDIR/firmware-dev"/*.zip; do
+    for zip in "$dl_dir"/*.zip; do
         [ -f "$zip" ] || continue
-        unzip -q -o "$zip" -d "$TMPDIR/firmware-dev"
-        rm "$zip"
+        local zip_base
+        zip_base=$(basename "$zip" .zip)
+        local board="${zip_base#firmware_}"
+        mkdir -p "$TMPDIR/firmware-dev/$board"
+        unzip -q -o "$zip" -d "$TMPDIR/firmware-dev/$board"
     done
+    rm -rf "$dl_dir"
 
     count=$(find "$TMPDIR/firmware-dev" -type f | wc -l | tr -d ' ')
     if [ "$count" -eq 0 ]; then
