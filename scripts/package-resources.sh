@@ -77,7 +77,14 @@ git_describe_version() {
     local dir="$1"
     git -C "$dir" fetch --tags --quiet
     git -C "$dir" fetch --deepen=1000 --quiet
-    git -C "$dir" describe --tags --exclude=development | sed 's/-g[0-9a-f]*$//'
+    local v
+    v=$(git -C "$dir" describe --tags --exclude=development | sed 's/-g[0-9a-f]*$//')
+    # If HEAD is exactly at a tag (no -N suffix), append -dev so the IDE's
+    # version_channel() heuristic still classifies this as a development build.
+    if [[ "$v" != *-* ]]; then
+        v="${v}-dev"
+    fi
+    echo "$v"
 }
 
 # --- Resolve tags/versions ---------------------------------------------------
