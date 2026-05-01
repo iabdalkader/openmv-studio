@@ -15,6 +15,11 @@ import os
 import sys
 import time
 
+# Disable all ultralytics network paths (PyPI version check, GA telemetry,
+# attempt_download_asset for missing weights). Must be set BEFORE the
+# ultralytics import, since utils/__init__.py caches ONLINE at module load.
+os.environ["YOLO_OFFLINE"] = "true"
+
 
 def annotate_image(model, image_path, output_dir, conf, class_map=None):
     """Run inference on a single image and write YOLO-format labels.
@@ -75,7 +80,8 @@ def main():
     ap = argparse.ArgumentParser(description="Auto-annotate images with YOLOv8n")
     ap.add_argument("--input", required=True, help="Input images directory")
     ap.add_argument("--output", required=True, help="Output labels directory")
-    ap.add_argument("--model", default="yolov8n.pt", help="YOLO model path")
+    ap.add_argument("--models-dir", required=True, help="Bundled models directory")
+    ap.add_argument("--model", default="yolov8n.pt", help="Model file name in --models-dir")
     ap.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     ap.add_argument("--watch", action="store_true", help="Watch for new images")
     ap.add_argument(
@@ -83,6 +89,11 @@ def main():
         help="Comma-separated project class names to filter/remap COCO detections"
     )
     args = ap.parse_args()
+
+    model_path = os.path.join(args.models_dir, args.model)
+    if not os.path.exists(model_path):
+        print(json.dumps({"error": f"Model not found: {model_path}"}), flush=True)
+        sys.exit(1)
 
     os.makedirs(args.output, exist_ok=True)
 
@@ -95,7 +106,7 @@ def main():
 
     # Load model once
     print(json.dumps({"status": "loading_model", "model": args.model}), flush=True)
-    model = YOLO(args.model)
+    model = YOLO(model_path)
     print(json.dumps({"status": "model_ready"}), flush=True)
 
     # Build class mapping from project classes to COCO classes

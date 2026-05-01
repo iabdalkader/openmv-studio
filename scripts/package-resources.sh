@@ -22,6 +22,12 @@ OPENMV_REPO="https://github.com/openmv/openmv.git"
 OPENMV_DOC_REPO="https://github.com/openmv/openmv-doc.git"
 FIRMWARE_GH_REPO="openmv/openmv"
 
+# Pinned ML model weights bundled into the "models" resource. The tools/python
+# scripts (annotate/train) load .pt weights from here so ultralytics never
+# triggers attempt_download_asset() at runtime.
+MODELS_VERSION="v1.0.0"
+ULTRALYTICS_ASSETS_BASE="https://github.com/ultralytics/assets/releases/download/v8.3.0"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUT_DIR="${PROJECT_DIR}/dist/resources"
@@ -258,6 +264,34 @@ package_firmware() {
     echo "$DEV_FW_VERSION" > "${OUT_DIR}/firmware-dev.version"
 }
 
+package_models() {
+    echo ""
+    echo "=== Packaging models ==="
+    echo "Models version: ${MODELS_VERSION}"
+
+    local src="$TMPDIR/models"
+    mkdir -p "$src"
+
+    local files=(
+        "yolov8n.pt"
+        "yolo11n.pt"
+    )
+
+    for name in "${files[@]}"; do
+        echo "Fetching ${name}..."
+        curl -fsSL -o "${src}/${name}" "${ULTRALYTICS_ASSETS_BASE}/${name}"
+    done
+
+    make_archive "models" "$src"
+    echo "$MODELS_VERSION" > "${OUT_DIR}/models.version"
+
+    # Models aren't tied to firmware channels; ship the same archive on both,
+    # but tag the dev copy so version_channel() classifies it as development
+    # (any version string with a dash after the semver counts as dev).
+    cp "${OUT_DIR}/models.tar.xz" "${OUT_DIR}/models-dev.tar.xz"
+    echo "${MODELS_VERSION}-dev" > "${OUT_DIR}/models-dev.version"
+}
+
 # --- Manifest generation -----------------------------------------------------
 
 # Emit a JSON entry for a channeled resource (boards, examples, firmware, stubs).
@@ -330,6 +364,9 @@ generate_manifest() {
         emit_resource_entry "stubs"
         printf ',\n'
 
+        emit_resource_entry "models"
+        printf ',\n'
+
         # Tools: openmv-sdk publishes tools.json describing the latest tools
         # release (version + per-platform url/sha256/size). We splice it in
         # verbatim under "tools".
@@ -361,6 +398,7 @@ main() {
     package_examples
     package_stubs
     package_firmware
+    package_models
     generate_manifest
 
     echo ""

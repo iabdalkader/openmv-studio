@@ -14,6 +14,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 
+use crate::resolve_resource;
+
 // -- Types ------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -127,6 +129,17 @@ fn python_path(app: &AppHandle) -> Result<String, String> {
     } else {
         Err(format!("Python not found at: {}", python.display()))
     }
+}
+
+fn models_dir(app: &AppHandle) -> Result<String, String> {
+    let dir = resolve_resource(app, "models");
+    if !dir.exists() {
+        return Err(format!(
+            "Models resource not found at {}. Download resources from Settings.",
+            dir.display()
+        ));
+    }
+    Ok(dir.to_string_lossy().to_string())
 }
 
 fn script_path(app: &AppHandle, script: &str) -> Result<String, String> {
@@ -383,6 +396,7 @@ pub async fn cmd_ml_start_annotator(
 
     let py = python_path(&app)?;
     let script = script_path(&app, "annotate.py")?;
+    let models_dir = models_dir(&app)?;
     let conf_str = format!("{:.2}", conf.unwrap_or(0.25));
 
     // Read project classes for COCO class filtering/remapping
@@ -402,6 +416,8 @@ pub async fn cmd_ml_start_annotator(
             &images_dir.to_string_lossy(),
             "--output",
             &labels_dir.to_string_lossy(),
+            "--models-dir",
+            &models_dir,
             "--conf",
             &conf_str,
             "--classes",
@@ -645,6 +661,7 @@ pub async fn cmd_ml_train(
 
     let py = python_path(&app)?;
     let script = script_path(&app, "train.py")?;
+    let models_dir = models_dir(&app)?;
     let epochs_str = format!("{}", epochs.unwrap_or(50));
     let imgsz_str = format!("{}", imgsz.unwrap_or(192));
     let model_arg = model.unwrap_or_else(|| "yolov8n".to_string());
@@ -675,6 +692,8 @@ pub async fn cmd_ml_train(
             &script,
             "--project",
             &proj.to_string_lossy(),
+            "--models-dir",
+            &models_dir,
             "--epochs",
             &epochs_str,
             "--imgsz",

@@ -27,11 +27,17 @@
 # Usage:
 #   python export.py --project DIR --imgsz 192
 
+import os
+
+# Disable all ultralytics network paths (PyPI version check, GA telemetry,
+# attempt_download_asset for missing weights). Must be set BEFORE the
+# ultralytics import, since utils/__init__.py caches ONLINE at module load.
+os.environ["YOLO_OFFLINE"] = "true"
+
 import tensorflow as tf  # noqa: F401  MUST be first - see header comment
 
 import argparse
 import json
-import os
 import shutil
 import sys
 
@@ -120,13 +126,19 @@ def main():
     if os.path.exists(saved_model_dir):
         shutil.rmtree(saved_model_dir)
 
-    if not os.path.exists("calibration_image_sample_data_20x128x128x3_float32.npy"):
-        np.save(
-            "calibration_image_sample_data_20x128x128x3_float32.npy",
-            np.random.rand(20, 128, 128, 3).astype(np.float32),
-        )
-
+    # onnx2tf's download_test_image_data() unconditionally pulls a dummy
+    # calibration npy from GitHub and drops it in cwd if missing. We pass
+    # real calibration via custom_input_op_name_np_data_path below, but the
+    # function still gets referenced internally - override it with an
+    # in-memory dummy so the conversion is fully offline and leaves no
+    # stray .npy in the working directory.
     import onnx2tf
+    import onnx2tf.onnx2tf as _o2tf_module
+
+    _o2tf_module.download_test_image_data = lambda: np.random.rand(
+        20, 128, 128, 3
+    ).astype(np.float32)
+
     onnx2tf.convert(
         input_onnx_file_path=onnx_file,
         output_folder_path=saved_model_dir,

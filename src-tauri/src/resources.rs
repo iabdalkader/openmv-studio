@@ -15,7 +15,8 @@ use tauri::{AppHandle, Emitter, Manager};
 const MANIFEST_URL: &str = "https://download.openmv.io/studio/manifest.json";
 
 // Resource names that live in app_data_dir instead of the bundle.
-pub const DOWNLOADED_RESOURCES: &[&str] = &["boards", "examples", "firmware", "stubs", "tools"];
+pub const DOWNLOADED_RESOURCES: &[&str] =
+    &["boards", "examples", "firmware", "stubs", "tools", "models"];
 
 // -- Manifest types ----------------------------------------------------------
 
@@ -26,6 +27,7 @@ pub struct Manifest {
     pub examples: HashMap<String, ResourceEntry>,
     pub firmware: HashMap<String, ResourceEntry>,
     pub stubs: HashMap<String, ResourceEntry>,
+    pub models: HashMap<String, ResourceEntry>,
     pub tools: ToolsEntry,
 }
 
@@ -457,12 +459,13 @@ pub async fn cmd_fetch_manifest(
     let platform = detect_platform()?;
     let mut statuses = Vec::new();
 
-    // Channeled resources: boards, examples, firmware, stubs
+    // Channeled resources: boards, examples, firmware, stubs, models
     let resources: &[(&str, &HashMap<String, ResourceEntry>)] = &[
         ("boards", &manifest.boards),
         ("examples", &manifest.examples),
         ("firmware", &manifest.firmware),
         ("stubs", &manifest.stubs),
+        ("models", &manifest.models),
     ];
 
     for &(name, entries) in resources {
@@ -518,12 +521,13 @@ pub async fn cmd_download_resource(
         .map_err(|e| format!("Failed to parse cached manifest: {}", e))?;
 
     match name.as_str() {
-        "boards" | "examples" | "firmware" | "stubs" => {
+        "boards" | "examples" | "firmware" | "stubs" | "models" => {
             let entries = match name.as_str() {
                 "boards" => &manifest.boards,
                 "examples" => &manifest.examples,
                 "firmware" => &manifest.firmware,
                 "stubs" => &manifest.stubs,
+                "models" => &manifest.models,
                 _ => unreachable!(),
             };
             let entry = entries

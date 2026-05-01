@@ -17,6 +17,12 @@ import shutil
 import sys
 import time
 
+# Disable all ultralytics network paths (PyPI version check, GA telemetry,
+# attempt_download_asset for missing weights). Must be set BEFORE the
+# ultralytics import below, since utils/__init__.py evaluates ONLINE = is_online()
+# at module load and caches the result on a module-level Events() instance.
+os.environ["YOLO_OFFLINE"] = "true"
+
 
 def generate_dataset(project_dir, imgsz):
     """Create dataset.yaml and split images into train/val sets.
@@ -128,11 +134,17 @@ def generate_dataset(project_dir, imgsz):
 def main():
     ap = argparse.ArgumentParser(description="Train YOLOv8n on project dataset")
     ap.add_argument("--project", required=True, help="Project directory")
+    ap.add_argument("--models-dir", required=True, help="Bundled models directory")
     ap.add_argument("--epochs", type=int, default=50, help="Training epochs")
     ap.add_argument("--imgsz", type=int, default=192, help="Image size")
-    ap.add_argument("--model", default="yolov8n.pt", help="Base model")
+    ap.add_argument("--model", required=True, help="Base model file name (e.g. yolov8n.pt)")
     ap.add_argument("--batch", type=int, default=16, help="Batch size")
     args = ap.parse_args()
+
+    model_path = os.path.join(args.models_dir, args.model)
+    if not os.path.exists(model_path):
+        print(json.dumps({"error": f"Model not found: {model_path}"}), flush=True)
+        sys.exit(1)
 
     try:
         from ultralytics import YOLO
@@ -194,7 +206,7 @@ def main():
 
     # Train
     print(json.dumps({"status": "training_started"}), flush=True)
-    model = YOLO(args.model)
+    model = YOLO(model_path)
     model.add_callback("on_train_start", on_train_start)
     model.add_callback("on_train_epoch_end", on_train_epoch_end)
 
