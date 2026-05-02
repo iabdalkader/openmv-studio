@@ -279,7 +279,8 @@ fn extract_tar_xz(archive: &Path, dest: &Path, name: &str, app: &AppHandle) -> R
         // We flatten it: extract bin/dfu-util*, stedgeai/, python/ into dest root.
         extract_tools_archive(&mut tar, dest, app, name)?;
     } else {
-        // Examples and stubs: strip one directory level (the archive root)
+        // Strip the single archive-root directory (e.g. firmware/, examples/,
+        // stubs/) so per-category subdirs land directly under dest.
         let mut count: u64 = 0;
         for entry in tar.entries().map_err(|e| format!("Tar read error: {}", e))? {
             let mut entry = entry.map_err(|e| format!("Tar entry error: {}", e))?;
@@ -288,7 +289,6 @@ fn extract_tar_xz(archive: &Path, dest: &Path, name: &str, app: &AppHandle) -> R
                 .map_err(|e| format!("Tar path error: {}", e))?
                 .into_owned();
 
-            // Strip the top-level directory
             let components: Vec<_> = path.components().collect();
             if components.len() <= 1 {
                 continue;

@@ -9,7 +9,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { state } from "./state";
+import { state, dialogWindowSize } from "./state";
 
 export interface ResourceStatus {
   name: string;
@@ -26,11 +26,12 @@ export async function openResourceWindow(
   const scale = state.uiScale;
   const title =
     mode === "update" ? "Resource Updates" : "OpenMV Studio Setup";
+  const { width, height } = await dialogWindowSize();
   const win = new WebviewWindow("resources", {
     url: `resources.html?mode=${mode}&channel=${channel}`,
     title,
-    width: Math.round(520 * scale),
-    height: Math.round(420 * scale),
+    width,
+    height,
     resizable: false,
     center: true,
     alwaysOnTop: true,

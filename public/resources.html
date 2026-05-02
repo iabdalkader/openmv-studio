@@ -120,11 +120,8 @@
       // In setup mode, just check local version files (fast, no network).
       var cmd = mode === "update" ? "cmd_fetch_manifest" : "cmd_check_resources";
       invoke(cmd, { channel: channel }).then(function(result) {
-        statuses = result;
-        // In update mode, only show resources that need updating
-        if (mode === "update") {
-          statuses = statuses.filter(function(s) { return s.needs_update; });
-        }
+        // Only show resources that need installing/updating.
+        statuses = result.filter(function(s) { return s.needs_update; });
         renderResources();
         checkAllDone();
       });
@@ -236,11 +233,8 @@
 
       // Fetch manifest first, then download each resource that needs it
       invoke("cmd_fetch_manifest", { channel: channel }).then(function(freshStatuses) {
-        // In update mode, only process resources that need updating
-        if (mode === "update") {
-          freshStatuses = freshStatuses.filter(function(s) { return s.needs_update; });
-        }
-        statuses = freshStatuses;
+        // Only show resources that need installing/updating.
+        statuses = freshStatuses.filter(function(s) { return s.needs_update; });
         renderResources();
 
         var pending = statuses.filter(function(s) { return s.needs_update; });

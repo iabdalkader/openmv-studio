@@ -12,7 +12,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { state, scheduleSaveSettings } from "./state";
+import { state, scheduleSaveSettings, dialogWindowSize } from "./state";
 import { initThemes, getEffectiveTheme, applyTheme } from "./theme";
 import { wglInit, wglDrawRgb565, wglDrawGrayscale, wglDrawBitmap } from "./gl";
 import { initResize } from "./resize";
@@ -707,12 +707,12 @@ async function eraseFilesystem() {
     return;
   }
 
-  const scale = state.uiScale;
+  const { width, height } = await dialogWindowSize();
   const win = new WebviewWindow("dfu-progress", {
     url: "progress.html",
     title: "Erase Filesystem",
-    width: Math.round(480 * scale),
-    height: Math.round(320 * scale),
+    width,
+    height,
     resizable: true,
     center: true,
     alwaysOnTop: true,
@@ -729,7 +729,7 @@ async function eraseFilesystem() {
     return;
   }
 
-  win.setZoom(scale);
+  win.setZoom(state.uiScale);
 
   try {
     await invoke("cmd_erase_filesystem");
@@ -1364,12 +1364,12 @@ async function openAboutDialog() {
     return;
   }
 
-  const scale = state.uiScale;
+  const { width, height } = await dialogWindowSize();
   const win = new WebviewWindow("about", {
     url: "about.html",
     title: "About OpenMV Studio",
-    width: Math.round(380 * scale),
-    height: Math.round(340 * scale),
+    width,
+    height,
     resizable: false,
     center: true,
     alwaysOnTop: true,
@@ -1388,7 +1388,7 @@ async function openAboutDialog() {
     return;
   }
 
-  win.setZoom(scale);
+  win.setZoom(state.uiScale);
 
   const readyUnlisten = await listen("about-ready", async () => {
     readyUnlisten();

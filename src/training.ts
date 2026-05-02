@@ -3,7 +3,7 @@
 // ML tools: opens the ML training window.
 
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { state } from "./state";
+import { childWindowSize, state } from "./state";
 
 export async function openTrainingWindow(): Promise<void> {
   const existing = await WebviewWindow.getByLabel("training");
@@ -13,11 +13,12 @@ export async function openTrainingWindow(): Promise<void> {
   }
 
   const scale = state.uiScale;
+  const { width, height } = await childWindowSize();
   const w = new WebviewWindow("training", {
     url: "training.html",
     title: "ML Tools",
-    width: Math.round(800 * scale),
-    height: Math.round(600 * scale),
+    width,
+    height,
     center: true,
     alwaysOnTop: true,
     parent: "main",

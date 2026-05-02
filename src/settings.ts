@@ -20,6 +20,7 @@ import {
   scheduleSaveSettings,
   type ThemeSetting,
   setScheduleSaveSettings,
+  dialogWindowSize,
 } from "./state";
 import {
   openFiles,
@@ -310,12 +311,12 @@ export async function openSettings() {
     return;
   }
 
-  const scale = state.uiScale;
+  const { width, height } = await dialogWindowSize();
   const win = new WebviewWindow("settings", {
     url: "settings.html",
     title: "Settings",
-    width: Math.round(600 * scale),
-    height: Math.round(480 * scale),
+    width,
+    height,
     resizable: true,
     center: true,
     alwaysOnTop: true,
@@ -335,7 +336,7 @@ export async function openSettings() {
     return;
   }
 
-  win.setZoom(scale);
+  win.setZoom(state.uiScale);
 
   // Wait for the settings page JS to load and register listeners
   const readyUnlisten = await listen("settings-ready", async () => {
