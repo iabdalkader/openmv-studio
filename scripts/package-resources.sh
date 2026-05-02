@@ -280,43 +280,68 @@ package_firmware() {
     echo "$DEV_FW_VERSION" > "${OUT_DIR}/firmware-dev.version"
 }
 
+# Copy NPU compile configs (vela.ini, neuralart.json, stm32n6.mpool) from the
+# currently checked-out openmv clone into $1 (destination dir). The neuralart
+# files moved from tools/st/scripts/ to lib/stai/scripts/, so try both.
+copy_npu_configs() {
+    local dst="$1"
+    cp "$TMPDIR/openmv/tools/vela.ini" "$dst/vela.ini"
+    local na_dir
+    if [ -f "$TMPDIR/openmv/lib/stai/scripts/neuralart.json" ]; then
+        na_dir="$TMPDIR/openmv/lib/stai/scripts"
+    elif [ -f "$TMPDIR/openmv/tools/st/scripts/neuralart.json" ]; then
+        na_dir="$TMPDIR/openmv/tools/st/scripts"
+    else
+        echo "ERROR: neuralart.json not found in openmv clone" >&2
+        return 1
+    fi
+    cp "$na_dir/neuralart.json" "$dst/neuralart.json"
+    cp "$na_dir/stm32n6.mpool" "$dst/stm32n6.mpool"
+}
+
+# Fetch the pinned ML weights into $1 (destination dir).
+fetch_model_weights() {
+    local dst="$1"
+    local files=(
+        "yolov8n.pt"
+        "yolo11n.pt"
+    )
+    for name in "${files[@]}"; do
+        echo "Fetching ${name}..."
+        curl -fsSL -o "${dst}/${name}" "${ULTRALYTICS_ASSETS_BASE}/${name}"
+    done
+}
+
 package_models() {
     echo ""
     echo "=== Packaging models ==="
     echo "Models version: ${MODELS_VERSION}"
 
-    local src="$TMPDIR/models"
-    mkdir -p "$src"
-
-    local files=(
-        "yolov8n.pt"
-        "yolo11n.pt"
-    )
-
-    for name in "${files[@]}"; do
-        echo "Fetching ${name}..."
-        curl -fsSL -o "${src}/${name}" "${ULTRALYTICS_ASSETS_BASE}/${name}"
-    done
-
-    # NPU compile configs consumed by export.py:
-    #   vela.ini       -- Vela Ethos-U55 system configs
-    #   neuralart.json -- stedgeai profile for the STM32 N6 Neural-ART NPU
-    #   stm32n6.mpool  -- memory pool descriptor referenced by neuralart.json
-    # All three live in the openmv firmware repo, already cloned by
-    # package_examples and at $STABLE_FW_TAG by the time this runs.
     clone_openmv
-    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@${STABLE_FW_TAG}..."
-    cp "$TMPDIR/openmv/tools/vela.ini" "$src/vela.ini"
-    cp "$TMPDIR/openmv/tools/st/scripts/neuralart.json" "$src/neuralart.json"
-    cp "$TMPDIR/openmv/tools/st/scripts/stm32n6.mpool" "$src/stm32n6.mpool"
+    resolve_stable_fw_tag
 
-    make_archive "models" "$src"
+    # Stable: use the openmv clone at $STABLE_FW_TAG (package_examples left it
+    # there). NPU compile configs come from the firmware repo so they match
+    # the firmware channel.
+    local stable_src="$TMPDIR/models"
+    mkdir -p "$stable_src"
+    fetch_model_weights "$stable_src"
+    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@${STABLE_FW_TAG}..."
+    copy_npu_configs "$stable_src"
+    make_archive "models" "$stable_src"
     echo "$MODELS_VERSION" > "${OUT_DIR}/models.version"
 
-    # Models aren't tied to firmware channels; ship the same archive on both,
-    # but tag the dev copy so version_channel() classifies it as development
-    # (any version string with a dash after the semver counts as dev).
-    cp "${OUT_DIR}/models.tar.xz" "${OUT_DIR}/models-dev.tar.xz"
+    # Development: switch the clone to HEAD (origin/main) and rebuild against
+    # the latest configs. Weights are pinned and identical across channels, so
+    # reuse the already-downloaded files.
+    git -C "$TMPDIR/openmv" fetch --depth 1 origin HEAD --quiet
+    git -C "$TMPDIR/openmv" checkout FETCH_HEAD --quiet
+    local dev_src="$TMPDIR/models-dev"
+    mkdir -p "$dev_src"
+    cp "$stable_src"/yolo*.pt "$dev_src/"
+    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@HEAD..."
+    copy_npu_configs "$dev_src"
+    make_archive "models-dev" "$dev_src"
     echo "${MODELS_VERSION}-dev" > "${OUT_DIR}/models-dev.version"
 }
 
