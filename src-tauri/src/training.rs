@@ -7,6 +7,7 @@
 // and model training via Python subprocesses.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,7 @@ pub struct TrainProgressEvent {
 pub struct MlProcessState {
     pub annotator_pid: Mutex<Option<u32>>,
     pub training_pid: Mutex<Option<u32>>,
+    pub import_running: AtomicBool,
 }
 
 impl MlProcessState {
@@ -74,6 +76,7 @@ impl MlProcessState {
         Self {
             annotator_pid: Mutex::new(None),
             training_pid: Mutex::new(None),
+            import_running: AtomicBool::new(false),
         }
     }
 }
@@ -313,7 +316,7 @@ pub fn cmd_ml_has_trained_model(
         .exists())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cmd_ml_delete_project(app: AppHandle, name: String) -> Result<(), String> {
     let proj = project_dir(&app, &name)?;
     if !proj.exists() {
@@ -328,12 +331,28 @@ pub fn cmd_ml_delete_project(app: AppHandle, name: String) -> Result<(), String>
 /// Copies each file into the project's images/ directory with a
 /// sequential name (img_00001.jpg, ...).  Supports jpg, jpeg, png,
 /// and bmp source files.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cmd_ml_import_images(
     app: AppHandle,
+    state: State<'_, Arc<MlProcessState>>,
     project: String,
     paths: Vec<String>,
 ) -> Result<usize, String> {
+    if state
+        .import_running
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Import already in progress".into());
+    }
+    struct Guard<'a>(&'a AtomicBool);
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = Guard(&state.import_running);
+
     log::info!("Importing {} images into project: {}", paths.len(), project);
     let proj = project_dir(&app, &project)?;
     let images_dir = proj.join("images");

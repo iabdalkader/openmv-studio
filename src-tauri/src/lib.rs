@@ -42,6 +42,10 @@ struct AppState {
 
 struct SetupComplete(AtomicBool);
 
+struct ConnectRunning(AtomicBool);
+
+struct DfuRunning(AtomicBool);
+
 #[tauri::command]
 fn cmd_setup_done(app: tauri::AppHandle) {
     let flag = app.state::<Arc<SetupComplete>>();
@@ -116,10 +120,7 @@ fn cmd_open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn cmd_list_ports(all: Option<bool>, state: State<Arc<Mutex<AppState>>>) -> Vec<String> {
-    let st = state.lock().unwrap();
-    let all = all.unwrap_or(false);
+fn list_known_ports(boards: &[Board], all: bool) -> Vec<String> {
     serialport::available_ports()
         .unwrap_or_default()
         .into_iter()
@@ -129,9 +130,7 @@ fn cmd_list_ports(all: Option<bool>, state: State<Arc<Mutex<AppState>>>) -> Vec<
                 return true;
             }
             if let serialport::SerialPortType::UsbPort(info) = &p.port_type {
-                st.boards
-                    .iter()
-                    .any(|b| b.vid == info.vid && b.pid == info.pid)
+                boards.iter().any(|b| b.vid == info.vid && b.pid == info.pid)
             } else {
                 false
             }
@@ -140,14 +139,50 @@ fn cmd_list_ports(all: Option<bool>, state: State<Arc<Mutex<AppState>>>) -> Vec<
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
+fn cmd_list_ports(all: Option<bool>, state: State<Arc<Mutex<AppState>>>) -> Vec<String> {
+    let st = state.lock().unwrap();
+    list_known_ports(&st.boards, all.unwrap_or(false))
+}
+
+#[tauri::command(async)]
 fn cmd_connect(
-    address: String,
+    address: Option<String>,
     transport: String,
     channel: Channel,
     io_interval_ms: u64,
     state: State<Arc<Mutex<AppState>>>,
+    connect_running: State<Arc<ConnectRunning>>,
 ) -> Result<(), String> {
+    if connect_running
+        .0
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Connect already in progress".into());
+    }
+    struct Guard<'a>(&'a AtomicBool);
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = Guard(&connect_running.0);
+
+    let address = match address {
+        Some(addr) => addr,
+        None => {
+            let st = state.lock().map_err(|e| e.to_string())?;
+            if st.sysinfo.is_some() {
+                return Ok(());
+            }
+            list_known_ports(&st.boards, false)
+                .into_iter()
+                .next()
+                .ok_or("No board found")?
+        }
+    };
+
     log::info!("Connecting to {} via {}", address, transport);
 
     // Stop existing worker
@@ -193,7 +228,7 @@ fn cmd_connect(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn cmd_disconnect(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
     log::info!("Disconnecting");
     let mut st = state.lock().map_err(|e| e.to_string())?;
@@ -303,12 +338,27 @@ fn cmd_bootloader(state: State<Arc<Mutex<AppState>>>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-async fn cmd_erase_filesystem(
+#[tauri::command(async)]
+fn cmd_erase_filesystem(
     app: tauri::AppHandle,
-    state: State<'_, Arc<Mutex<AppState>>>,
-    dfu_running: State<'_, Arc<AtomicBool>>,
+    state: State<Arc<Mutex<AppState>>>,
+    dfu_running: State<Arc<DfuRunning>>,
 ) -> Result<(), String> {
+    if dfu_running
+        .0
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("DFU already in progress".into());
+    }
+    struct Guard<'a>(&'a AtomicBool);
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = Guard(&dfu_running.0);
+
     let (vid_pid, fs_partition) = {
         let st = state.lock().map_err(|e| e.to_string())?;
         let info = st.sysinfo.as_ref().ok_or("Not connected")?;
@@ -336,24 +386,14 @@ async fn cmd_erase_filesystem(
         }
     }
 
-    // Run the blocking DFU operation on a background thread
-    let handle = app.clone();
-    let running = dfu_running.inner().clone();
-    running.store(true, Ordering::SeqCst);
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        // Wait for worker to finish and USB re-enumeration
-        std::thread::sleep(Duration::from_secs(3));
+    // Wait for worker to finish and USB re-enumeration
+    std::thread::sleep(Duration::from_secs(3));
 
-        let config = dfu::DfuConfig {
-            vid_pid,
-            fs_partition,
-        };
-        dfu::erase_filesystem(&handle, &config)
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))?;
-    running.store(false, Ordering::SeqCst);
-    result
+    let config = dfu::DfuConfig {
+        vid_pid,
+        fs_partition,
+    };
+    dfu::erase_filesystem(&app, &config)
 }
 
 #[tauri::command]
@@ -877,8 +917,9 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .manage(Arc::new(AtomicBool::new(false)))
         .manage(Arc::new(SetupComplete(AtomicBool::new(false))))
+        .manage(Arc::new(ConnectRunning(AtomicBool::new(false))))
+        .manage(Arc::new(DfuRunning(AtomicBool::new(false))))
         .manage(Arc::new(training::MlProcessState::new()))
         .manage(Arc::new(Mutex::new(AppState {
             boards: vec![],
