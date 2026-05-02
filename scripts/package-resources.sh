@@ -25,7 +25,7 @@ FIRMWARE_GH_REPO="openmv/openmv"
 # Pinned ML model weights bundled into the "models" resource. The tools/python
 # scripts (annotate/train) load .pt weights from here so ultralytics never
 # triggers attempt_download_asset() at runtime.
-MODELS_VERSION="v1.0.0"
+MODELS_VERSION="v1.1.0"
 ULTRALYTICS_ASSETS_BASE="https://github.com/ultralytics/assets/releases/download/v8.3.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -297,6 +297,18 @@ package_models() {
         echo "Fetching ${name}..."
         curl -fsSL -o "${src}/${name}" "${ULTRALYTICS_ASSETS_BASE}/${name}"
     done
+
+    # NPU compile configs consumed by export.py:
+    #   vela.ini       -- Vela Ethos-U55 system configs
+    #   neuralart.json -- stedgeai profile for the STM32 N6 Neural-ART NPU
+    #   stm32n6.mpool  -- memory pool descriptor referenced by neuralart.json
+    # All three live in the openmv firmware repo, already cloned by
+    # package_examples and at $STABLE_FW_TAG by the time this runs.
+    clone_openmv
+    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@${STABLE_FW_TAG}..."
+    cp "$TMPDIR/openmv/tools/vela.ini" "$src/vela.ini"
+    cp "$TMPDIR/openmv/tools/st/scripts/neuralart.json" "$src/neuralart.json"
+    cp "$TMPDIR/openmv/tools/st/scripts/stm32n6.mpool" "$src/stm32n6.mpool"
 
     make_archive "models" "$src"
     echo "$MODELS_VERSION" > "${OUT_DIR}/models.version"
