@@ -74,19 +74,25 @@
     var btnClose = document.getElementById("btn-close");
     var done = false;
 
-    listen("dfu-progress", function(event) {
-      statusEl.textContent = event.payload;
+    function appendLog(text) {
       var line = document.createElement("div");
-      line.textContent = event.payload;
+      line.textContent = text;
       logEl.appendChild(line);
       logEl.scrollTop = logEl.scrollHeight;
+    }
 
-      // Parse dfu-util download progress percentage
-      var match = event.payload.match(/(\d+)%/);
-      if (match) {
-        progressBar.classList.remove("indeterminate");
-        progressBar.style.width = match[1] + "%";
+    // dfu-status carries strings (stage updates) and numbers (per-tick byte
+    // counts). We don't know the partition size here, so we keep the bar
+    // indeterminate during the operation and let dfu-done jump it to 100%.
+    listen("dfu-status", function(event) {
+      if (typeof event.payload === "string") {
+        statusEl.textContent = event.payload;
+        appendLog(event.payload);
       }
+    });
+
+    listen("dfu-output", function(event) {
+      appendLog(event.payload);
     });
 
     listen("dfu-done", function() {
