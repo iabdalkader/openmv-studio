@@ -1261,17 +1261,16 @@ fn build_menu(
         .build()?;
 
     let tools = SubmenuBuilder::new(app, "Tools")
-        .text("model-zoo", "Model Zoo")
-        .text("apriltag-gen", "AprilTag Generator")
-        .text("romfs-editor", "ROMFS Editor")
         .text("pinout-viewer", "Pinout Viewer")
+        .text("romfs-editor", "ROMFS Editor")
+        .text("ml-tools", "ML Tools")
         .build()?;
 
     let device = SubmenuBuilder::new(app, "Device")
         .text("reset-device", "Reset Device")
         .text("bootloader", "Enter Bootloader")
-        .text("fw-update", "Update Firmware")
         .text("erase-fs", "Erase Filesystem")
+        .text("fw-update", "Update Firmware")
         .build()?;
 
     let view = SubmenuBuilder::new(app, "View")

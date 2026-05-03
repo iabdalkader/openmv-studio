@@ -70,6 +70,7 @@ import { initSettings, loadSettings, setUiScale, openSettings } from "./settings
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openPinoutViewer } from "./pinout";
 import { openRomfsEditor } from "./romfs-editor";
+import { openTrainingWindow } from "./training";
 import { openResourceWindow, type ResourceStatus } from "./resources";
 import { message as dialogMessage } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -1405,7 +1406,7 @@ async function openAboutDialog() {
 
 // --- System menu ---
 
-listen<string>("menu-action", (event) => {
+listen<string>("menu-action", async (event) => {
   const action = event.payload;
 
   switch (action) {
@@ -1434,9 +1435,15 @@ listen<string>("menu-action", (event) => {
       saveFileAs();
       break;
     case "reset-device":
+      if (!state.isConnected) {
+        await doConnect();
+      }
       invoke("cmd_reset");
       break;
     case "bootloader":
+      if (!state.isConnected) {
+        await doConnect();
+      }
       invoke("cmd_bootloader");
       break;
     case "erase-fs":
@@ -1447,6 +1454,9 @@ listen<string>("menu-action", (event) => {
       break;
     case "romfs-editor":
       openRomfsEditor();
+      break;
+    case "ml-tools":
+      openTrainingWindow();
       break;
     case "docs":
       invoke("cmd_open_url", { url: "https://docs.openmv.io/" });
