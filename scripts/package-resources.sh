@@ -25,7 +25,7 @@ FIRMWARE_GH_REPO="openmv/openmv"
 # Pinned ML model weights bundled into the "models" resource. The tools/python
 # scripts (annotate/train) load .pt weights from here so ultralytics never
 # triggers attempt_download_asset() at runtime.
-MODELS_VERSION="v1.2.0"
+MODELS_VERSION="v1.3.0"
 ULTRALYTICS_ASSETS_BASE="https://github.com/ultralytics/assets/releases/download/v8.3.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -321,26 +321,26 @@ package_models() {
     clone_openmv
     resolve_stable_fw_tag
 
-    # Stable: use the openmv clone at $STABLE_FW_TAG (package_examples left it
-    # there). NPU compile configs come from the firmware repo so they match
-    # the firmware channel.
+    # NPU configs must come from master -- the bundled stedgeai tools may be
+    # newer than the stable firmware tag and reject deprecated flags (e.g.
+    # --mvei in neuralart.json).  Switch to HEAD before copying configs for
+    # either channel.
+    git -C "$TMPDIR/openmv" fetch --depth 1 origin HEAD --quiet
+    git -C "$TMPDIR/openmv" checkout FETCH_HEAD --quiet
+
     local stable_src="$TMPDIR/models"
     mkdir -p "$stable_src"
     fetch_model_weights "$stable_src"
-    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@${STABLE_FW_TAG}..."
+    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@HEAD..."
     copy_npu_configs "$stable_src"
     make_archive "models" "$stable_src"
     echo "$MODELS_VERSION" > "${OUT_DIR}/models.version"
 
-    # Development: switch the clone to HEAD (origin/main) and rebuild against
-    # the latest configs. Weights are pinned and identical across channels, so
-    # reuse the already-downloaded files.
-    git -C "$TMPDIR/openmv" fetch --depth 1 origin HEAD --quiet
-    git -C "$TMPDIR/openmv" checkout FETCH_HEAD --quiet
+    # Development: weights are pinned and identical across channels, so
+    # reuse the already-downloaded files.  NPU configs already from HEAD.
     local dev_src="$TMPDIR/models-dev"
     mkdir -p "$dev_src"
     cp "$stable_src"/yolo*.pt "$dev_src/"
-    echo "Fetching vela.ini, neuralart.json, stm32n6.mpool from openmv@HEAD..."
     copy_npu_configs "$dev_src"
     make_archive "models-dev" "$dev_src"
     echo "${MODELS_VERSION}-dev" > "${OUT_DIR}/models-dev.version"
