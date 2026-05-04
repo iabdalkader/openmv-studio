@@ -21,6 +21,28 @@ import time
 os.environ["YOLO_OFFLINE"] = "true"
 
 
+def _iou_xywhn(a, b):
+    ax1 = a[0] - a[2] / 2
+    ay1 = a[1] - a[3] / 2
+    ax2 = a[0] + a[2] / 2
+    ay2 = a[1] + a[3] / 2
+    bx1 = b[0] - b[2] / 2
+    by1 = b[1] - b[3] / 2
+    bx2 = b[0] + b[2] / 2
+    by2 = b[1] + b[3] / 2
+    iw = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    ih = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = iw * ih
+    union = a[2] * a[3] + b[2] * b[3] - inter
+    return inter / union if union > 0 else 0.0
+
+
+# Drop overlapping detections that disagree on class. COCO YOLO often
+# outputs both "cat" and "dog" for the same animal when it's uncertain;
+# writing both produces contradictory training labels.
+NMS_IOU = 0.5
+
+
 def annotate_image(model, image_path, output_dir, conf, class_map=None):
     """Run inference on a single image and write YOLO-format labels.
 
@@ -32,8 +54,7 @@ def annotate_image(model, image_path, output_dir, conf, class_map=None):
     stem = os.path.splitext(os.path.basename(image_path))[0]
     label_path = os.path.join(output_dir, f"{stem}.txt")
 
-    detections = 0
-    lines = []
+    candidates = []
     for r in results:
         if r.boxes is None:
             continue
@@ -46,15 +67,29 @@ def annotate_image(model, image_path, output_dir, conf, class_map=None):
             else:
                 cls_id = coco_id
             x, y, w, h = box.xywhn[0].tolist()
-            lines.append(f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f}")
-            detections += 1
+            candidates.append((float(box.conf[0]), cls_id, x, y, w, h))
 
+    # Class-agnostic NMS: highest-confidence detection wins; any other
+    # detection overlapping it (IoU > NMS_IOU) is dropped, including
+    # ones with a different class id.
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    kept = []
+    for c in candidates:
+        box_xywh = c[2:6]
+        if any(_iou_xywhn(box_xywh, k[2:6]) > NMS_IOU for k in kept):
+            continue
+        kept.append(c)
+
+    lines = [
+        f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f}"
+        for _, cls_id, x, y, w, h in kept
+    ]
     with open(label_path, "w") as f:
         f.write("\n".join(lines))
         if lines:
             f.write("\n")
 
-    return detections
+    return len(kept)
 
 
 def build_class_map(project_classes, coco_names):
@@ -81,7 +116,7 @@ def main():
     ap.add_argument("--input", required=True, help="Input images directory")
     ap.add_argument("--output", required=True, help="Output labels directory")
     ap.add_argument("--models-dir", required=True, help="Bundled models directory")
-    ap.add_argument("--model", default="yolov8n.pt", help="Model file name in --models-dir")
+    ap.add_argument("--model", default="yolo11m.pt", help="Model file name in --models-dir")
     ap.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     ap.add_argument("--watch", action="store_true", help="Watch for new images")
     ap.add_argument(
@@ -124,6 +159,19 @@ def main():
         for f in os.listdir(args.output):
             if f.endswith(".txt"):
                 processed.add(f.replace(".txt", ".jpg"))
+
+    # Total number of jpgs in the input dir (already-labeled + to-do).
+    # Used by the UI to drive a progress bar.
+    total_images = 0
+    if os.path.isdir(args.input):
+        total_images = sum(
+            1 for f in os.listdir(args.input) if f.endswith(".jpg")
+        )
+    print(json.dumps({
+        "status": "started",
+        "total": total_images,
+        "already_processed": len(processed),
+    }), flush=True)
 
     def process_new_images():
         """Process any new images since last poll. Returns count processed."""
