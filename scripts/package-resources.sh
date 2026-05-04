@@ -25,7 +25,7 @@ FIRMWARE_GH_REPO="openmv/openmv"
 # Pinned ML model weights bundled into the "models" resource. The tools/python
 # scripts (annotate/train) load .pt weights from here so ultralytics never
 # triggers attempt_download_asset() at runtime.
-MODELS_VERSION="v1.1.0"
+MODELS_VERSION="v1.2.0"
 ULTRALYTICS_ASSETS_BASE="https://github.com/ultralytics/assets/releases/download/v8.3.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -305,6 +305,7 @@ fetch_model_weights() {
     local files=(
         "yolov8n.pt"
         "yolo11n.pt"
+        "yolo11m.pt"
     )
     for name in "${files[@]}"; do
         echo "Fetching ${name}..."
