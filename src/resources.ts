@@ -34,7 +34,7 @@ export async function openResourceWindow(
     height,
     resizable: false,
     center: true,
-    alwaysOnTop: true,
+    skipTaskbar: true,
     parent: "main",
   });
 

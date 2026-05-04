@@ -20,7 +20,7 @@ export async function openTrainingWindow(): Promise<void> {
     width,
     height,
     center: true,
-    alwaysOnTop: true,
+    skipTaskbar: true,
     parent: "main",
   });
 

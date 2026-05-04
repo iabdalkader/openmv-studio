@@ -720,7 +720,7 @@ async function eraseFilesystem() {
     height,
     resizable: true,
     center: true,
-    alwaysOnTop: true,
+    skipTaskbar: true,
     parent: "main",
   });
 
@@ -1243,7 +1243,7 @@ document.getElementById("status-updates")?.addEventListener("click", async () =>
   const downloaded = await openResourceWindow("update", state.resourceChannel);
   if (downloaded) {
     hideUpdateIndicator();
-    await relaunch();
+    await restartApp();
   }
 });
 
@@ -1283,7 +1283,7 @@ loadSettings().then(async () => {
   if (needsSetup) {
     const downloaded = await openResourceWindow("setup", state.resourceChannel);
     if (downloaded) {
-      await relaunch();
+      await restartApp();
     }
     return;
   }
@@ -1373,7 +1373,7 @@ async function openAboutDialog() {
     height,
     resizable: false,
     center: true,
-    alwaysOnTop: true,
+    skipTaskbar: true,
     parent: "main",
   });
 

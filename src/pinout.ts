@@ -25,7 +25,7 @@ export async function openPinoutViewer() {
     height,
     resizable: true,
     center: true,
-    alwaysOnTop: true,
+    skipTaskbar: true,
     parent: "main",
   });
 

@@ -320,7 +320,7 @@ export async function openSettings() {
     height,
     resizable: true,
     center: true,
-    alwaysOnTop: true,
+    skipTaskbar: true,
     parent: "main",
   });
 
