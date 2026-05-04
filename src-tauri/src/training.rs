@@ -386,9 +386,29 @@ pub fn cmd_ml_import_images(
             .map_err(|e| format!("Failed to create images dir: {}", e))?;
     }
 
-    // Find next available index
-    let existing = count_files(&images_dir, "jpg");
-    let mut idx = existing as u32;
+    // Pick the next free index. count alone is unsafe: if files have
+    // been deleted, gaps exist and starting from `count` would collide
+    // with surviving files (overwriting them and re-sorting new ones
+    // into the middle of the strip). Use max(existing index) + 1.
+    let mut idx: u32 = std::fs::read_dir(&images_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let p = e.path();
+                    if p.extension().and_then(|x| x.to_str()) != Some("jpg") {
+                        return None;
+                    }
+                    p.file_stem()
+                        .and_then(|s| s.to_str())
+                        .and_then(|s| s.strip_prefix("img_"))
+                        .and_then(|s| s.parse::<u32>().ok())
+                })
+                .max()
+                .map(|m| m + 1)
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
     let mut imported = 0usize;
 
     for src in &paths {
