@@ -47,8 +47,11 @@ def generate_dataset(project_dir, imgsz):
             except json.JSONDecodeError:
                 status_map = {}
 
-    # Collect accepted images that have a non-empty label file
+    # Collect accepted images (with labels) and background images (empty
+    # labels mark "no objects of any class"; Ultralytics treats them as
+    # negative examples to reduce false positives).
     paired = []
+    backgrounds = []
     skipped_unreviewed = 0
     skipped_rejected = 0
     skipped_no_labels = 0
@@ -57,34 +60,61 @@ def generate_dataset(project_dir, imgsz):
             continue
         stem = img.replace(".jpg", "")
         status = status_map.get(stem, "pending")
+        label = os.path.join(labels_dir, f"{stem}.txt")
         if status == "rejected":
             skipped_rejected += 1
+            continue
+        if status == "background":
+            if not os.path.exists(label):
+                open(label, "a").close()
+            backgrounds.append(stem)
             continue
         if status != "accepted":
             skipped_unreviewed += 1
             continue
-        label = os.path.join(labels_dir, f"{stem}.txt")
         if not os.path.exists(label) or os.path.getsize(label) == 0:
             skipped_no_labels += 1
             continue
         paired.append(stem)
 
     if not paired:
-        print(json.dumps({
-            "error": (
+        if backgrounds:
+            msg = (
+                "Dataset has only background images. Need at least one "
+                "accepted image with labels to train a detector."
+            )
+        else:
+            msg = (
                 "No accepted images with labels found. "
                 f"Skipped: {skipped_unreviewed} unreviewed, "
                 f"{skipped_rejected} rejected, "
                 f"{skipped_no_labels} accepted-but-empty."
-            ),
-        }), flush=True)
+            )
+        print(json.dumps({"error": msg}), flush=True)
         sys.exit(1)
 
-    # Shuffle and split 80/20
-    random.shuffle(paired)
-    split = max(1, int(len(paired) * 0.8))
-    train_set = paired[:split]
-    val_set = paired[split:] if split < len(paired) else paired[-1:]
+    total_for_ratio = len(paired) + len(backgrounds)
+    if backgrounds and len(backgrounds) > 0.30 * total_for_ratio:
+        pct = round(100 * len(backgrounds) / total_for_ratio)
+        print(json.dumps({
+            "warning": (
+                f"Backgrounds are {pct}% of the dataset; Ultralytics "
+                "recommends 0-10%. May reduce recall."
+            ),
+        }), flush=True)
+
+    # Shuffle and split 80/20 for both positive and background sets.
+    def split_80_20(stems):
+        random.shuffle(stems)
+        cut = max(1, int(len(stems) * 0.8))
+        train = stems[:cut]
+        val = stems[cut:] if cut < len(stems) else stems[-1:]
+        return train, val
+
+    train_set, val_set = split_80_20(paired)
+    bg_train, bg_val = ([], [])
+    if backgrounds:
+        bg_train, bg_val = split_80_20(backgrounds)
 
     # Create dataset directories
     dataset_dir = os.path.join(project_dir, "dataset")
@@ -92,26 +122,20 @@ def generate_dataset(project_dir, imgsz):
         for subdir in ["images", "labels"]:
             os.makedirs(os.path.join(dataset_dir, subset, subdir), exist_ok=True)
 
-    # Copy files
-    for stem in train_set:
+    def copy_pair(stem, subset):
         shutil.copy2(
             os.path.join(images_dir, f"{stem}.jpg"),
-            os.path.join(dataset_dir, "train", "images", f"{stem}.jpg"),
+            os.path.join(dataset_dir, subset, "images", f"{stem}.jpg"),
         )
         shutil.copy2(
             os.path.join(labels_dir, f"{stem}.txt"),
-            os.path.join(dataset_dir, "train", "labels", f"{stem}.txt"),
+            os.path.join(dataset_dir, subset, "labels", f"{stem}.txt"),
         )
 
-    for stem in val_set:
-        shutil.copy2(
-            os.path.join(images_dir, f"{stem}.jpg"),
-            os.path.join(dataset_dir, "val", "images", f"{stem}.jpg"),
-        )
-        shutil.copy2(
-            os.path.join(labels_dir, f"{stem}.txt"),
-            os.path.join(dataset_dir, "val", "labels", f"{stem}.txt"),
-        )
+    for stem in train_set + bg_train:
+        copy_pair(stem, "train")
+    for stem in val_set + bg_val:
+        copy_pair(stem, "val")
 
     # Write dataset.yaml
     yaml_path = os.path.join(project_dir, "dataset.yaml")
@@ -124,10 +148,12 @@ def generate_dataset(project_dir, imgsz):
 
     return (
         yaml_path,
-        len(train_set),
-        len(val_set),
+        len(train_set) + len(bg_train),
+        len(val_set) + len(bg_val),
         skipped_unreviewed,
         skipped_rejected,
+        len(paired),
+        len(backgrounds),
     )
 
 
@@ -167,11 +193,14 @@ def main():
     # Generate dataset split
     print(json.dumps({"status": "preparing_dataset"}), flush=True)
     (yaml_path, n_train, n_val,
-     n_skip_unreviewed, n_skip_rejected) = generate_dataset(args.project, args.imgsz)
+     n_skip_unreviewed, n_skip_rejected,
+     n_accepted, n_background) = generate_dataset(args.project, args.imgsz)
     print(json.dumps({
         "status": "dataset_ready",
         "train_images": n_train,
         "val_images": n_val,
+        "included_accepted": n_accepted,
+        "included_background": n_background,
         "skipped_unreviewed": n_skip_unreviewed,
         "skipped_rejected": n_skip_rejected,
     }), flush=True)

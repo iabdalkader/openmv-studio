@@ -1374,6 +1374,7 @@ pub fn run() {
             training::cmd_ml_get_annotations,
             training::cmd_ml_save_annotation,
             training::cmd_ml_set_review_status,
+            training::cmd_ml_reset_annotations,
             training::cmd_ml_delete_image,
             training::cmd_ml_train,
             training::cmd_ml_stop_training,

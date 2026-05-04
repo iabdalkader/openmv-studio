@@ -45,6 +45,8 @@ pub struct ProjectInfo {
 pub struct AnnotationEvent {
     pub image: String,
     pub detections: usize,
+    #[serde(default)]
+    pub total_processed: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -617,6 +619,11 @@ pub fn cmd_ml_set_review_status(
     image: String,
     status: String,
 ) -> Result<(), String> {
+    const ALLOWED: &[&str] = &["pending", "accepted", "rejected", "background"];
+    if !ALLOWED.contains(&status.as_str()) {
+        return Err(format!("Invalid review status: {}", status));
+    }
+
     let proj = project_dir(&app, &project)?;
     let status_path = proj.join("status.json");
     let mut current = read_review_status(&proj);
@@ -634,6 +641,38 @@ pub fn cmd_ml_set_review_status(
     std::fs::write(&status_path, json)
         .map_err(|e| format!("Failed to write status.json: {}", e))?;
 
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_ml_reset_annotations(
+    app: AppHandle,
+    project: String,
+    images: Vec<String>,
+) -> Result<(), String> {
+    if images.is_empty() {
+        return Ok(());
+    }
+    let proj = project_dir(&app, &project)?;
+    let labels_dir = proj.join("labels");
+    let status_path = proj.join("status.json");
+    let mut current = read_review_status(&proj);
+
+    for image in &images {
+        let stem = image.strip_suffix(".jpg").unwrap_or(image);
+        let label_path = labels_dir.join(format!("{}.txt", stem));
+        if label_path.exists() {
+            let _ = std::fs::remove_file(&label_path);
+        }
+        if let Some(obj) = current.as_object_mut() {
+            obj.remove(stem);
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&current)
+        .map_err(|e| format!("Failed to serialize status: {}", e))?;
+    std::fs::write(&status_path, json)
+        .map_err(|e| format!("Failed to write status.json: {}", e))?;
     Ok(())
 }
 
