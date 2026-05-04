@@ -25,6 +25,10 @@ pub struct ProjectConfig {
     pub classes: Vec<String>,
     pub imgsz: u32,
     pub created: String,
+    // Task type -- "bbox" today, "centerpoint" in the future. Required
+    // field; existing on-disk projects without `task` must be migrated
+    // (add `"task": "bbox"` to project.json) before they will load.
+    pub task: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -34,6 +38,7 @@ pub struct ProjectInfo {
     pub name: String,
     pub classes: Vec<String>,
     pub imgsz: u32,
+    pub task: String,
     pub model: Option<String>,
     pub image_count: usize,
     pub label_count: usize,
@@ -49,14 +54,25 @@ pub struct AnnotationEvent {
     pub total_processed: usize,
 }
 
+/// One metric value with self-describing render hints. `range=None`
+/// means auto-range that axis; `Some([lo, hi])` pins it. Metrics that
+/// share a `range` end up on the same chart axis.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Metric {
+    pub name: String,
+    pub value: f64,
+    #[serde(default)]
+    pub range: Option<[f64; 2]>,
+}
+
+/// Per-epoch training event. Each event carries the full metric list
+/// (name + value + render hint) so the Rust side and chart stay
+/// task-agnostic and never need a separate spec channel.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TrainProgressEvent {
     pub epoch: u32,
     pub epochs: u32,
-    pub box_loss: f64,
-    pub cls_loss: f64,
-    #[serde(rename = "mAP50")]
-    pub map50: f64,
+    pub metrics: Vec<Metric>,
     #[serde(default)]
     pub epoch_secs: f64,
     #[serde(default)]
@@ -148,6 +164,23 @@ fn python_path(app: &AppHandle) -> Result<String, String> {
     }
 }
 
+// Bundled Python lives in the read-only resources tree. Once our scripts
+// import each other, Python tries to write __pycache__/*.pyc next to the
+// source -- which fails on the read-only bundle. Redirect cache writes
+// to a writable location in app data. Disabling bytecode entirely would
+// also slow down stedgeai's huge module set on every export, so we keep
+// the cache enabled but relocate it.
+fn pycache_prefix(app: &AppHandle) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("pycache");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create pycache dir: {}", e))?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
 fn models_dir(app: &AppHandle) -> Result<String, String> {
     let dir = resolve_resource(app, "models");
     if !dir.exists() {
@@ -226,6 +259,7 @@ pub fn cmd_ml_create_project(
     name: String,
     classes: Vec<String>,
     imgsz: Option<u32>,
+    task: Option<String>,
 ) -> Result<(), String> {
     let proj = project_dir(&app, &name)?;
     if proj.exists() {
@@ -242,6 +276,7 @@ pub fn cmd_ml_create_project(
         classes,
         imgsz: imgsz.unwrap_or(192),
         created: chrono_now(),
+        task: task.unwrap_or_else(|| "bbox".to_string()),
         model: None,
     };
 
@@ -288,10 +323,24 @@ pub fn cmd_ml_list_projects(app: AppHandle) -> Result<Vec<ProjectInfo>, String> 
         if !config_path.exists() {
             continue;
         }
-        let config_str = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read project.json: {}", e))?;
-        let config: ProjectConfig = serde_json::from_str(&config_str)
-            .map_err(|e| format!("Failed to parse project.json: {}", e))?;
+        let config_str = match std::fs::read_to_string(&config_path) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("Skipping project at {}: read failed: {}", path.display(), e);
+                continue;
+            }
+        };
+        let config: ProjectConfig = match serde_json::from_str(&config_str) {
+            Ok(c) => c,
+            Err(e) => {
+                // Likely missing the `task` field on a pre-refactor
+                // project. Skip rather than failing the entire list,
+                // so other projects stay visible while the user
+                // migrates this one.
+                log::warn!("Skipping project at {}: parse failed: {}", path.display(), e);
+                continue;
+            }
+        };
 
         let image_count = count_files(&path.join("images"), "jpg");
         let label_count = count_files(&path.join("labels"), "txt");
@@ -315,6 +364,7 @@ pub fn cmd_ml_list_projects(app: AppHandle) -> Result<Vec<ProjectInfo>, String> 
             name: config.name,
             classes: config.classes,
             imgsz: config.imgsz,
+            task: config.task,
             model: config.model,
             image_count,
             label_count,
@@ -472,8 +522,11 @@ pub async fn cmd_ml_start_annotator(
         .shell()
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONPYCACHEPREFIX", pycache_prefix(&app)?)
         .args(&[
             &script,
+            "--project",
+            &proj.to_string_lossy(),
             "--input",
             &images_dir.to_string_lossy(),
             "--output",
@@ -506,16 +559,13 @@ pub async fn cmd_ml_start_annotator(
                     if trimmed.is_empty() {
                         continue;
                     }
-                    // Try to parse as JSON annotation event; otherwise
-                    // forward any other JSON object as a status event.
+                    log::info!("annotator: {}", trimmed);
                     if let Ok(evt) = serde_json::from_str::<AnnotationEvent>(trimmed) {
                         let _ = app_clone.emit("ml-annotate", &evt);
                     } else if let Ok(val) =
                         serde_json::from_str::<serde_json::Value>(trimmed)
                     {
                         let _ = app_clone.emit("ml-annotate-status", &val);
-                    } else {
-                        log::info!("annotator: {}", trimmed);
                     }
                 }
                 CommandEvent::Stderr(line) => {
@@ -787,6 +837,7 @@ pub async fn cmd_ml_train(
         .shell()
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONPYCACHEPREFIX", pycache_prefix(&app)?)
         .args(&[
             &script,
             "--project",
@@ -812,6 +863,7 @@ pub async fn cmd_ml_train(
 
     let app_clone = app.clone();
     let state_clone = Arc::clone(&state);
+    let metrics_path = proj.join("runs").join("train").join("metrics.jsonl");
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -824,6 +876,17 @@ pub async fn cmd_ml_train(
                     if let Ok(evt) =
                         serde_json::from_str::<TrainProgressEvent>(trimmed)
                     {
+                        if let Some(parent) = metrics_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if let Ok(mut f) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&metrics_path)
+                        {
+                            use std::io::Write;
+                            let _ = writeln!(f, "{}", trimmed);
+                        }
                         let _ = app_clone.emit("ml-train-progress", &evt);
                     } else {
                         log::info!("training: {}", trimmed);
@@ -857,6 +920,31 @@ pub async fn cmd_ml_train(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_ml_get_train_metrics(
+    app: AppHandle,
+    project: String,
+) -> Result<Vec<TrainProgressEvent>, String> {
+    let proj = project_dir(&app, &project)?;
+    let path = proj.join("runs").join("train").join("metrics.jsonl");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read metrics: {}", e))?;
+    let mut events = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(evt) = serde_json::from_str::<TrainProgressEvent>(trimmed) {
+            events.push(evt);
+        }
+    }
+    Ok(events)
 }
 
 #[tauri::command]
@@ -959,6 +1047,7 @@ pub async fn run_export(
         .shell()
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONPYCACHEPREFIX", pycache_prefix(&app)?)
         .args(args);
 
     let (mut rx, child) = sidecar

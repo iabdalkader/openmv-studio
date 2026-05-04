@@ -2,229 +2,71 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 OpenMV, LLC.
 #
-# Auto-annotate images using a pretrained YOLOv8n model.
-# In --watch mode, polls the input directory for new images and
-# annotates them as they arrive. Outputs JSON lines to stdout.
+# Top-level auto-annotator dispatcher. Reads project.json for the task
+# type and forwards to the matching ml/<task>/annotate.py.
 #
 # Usage:
-#   python annotate.py --input DIR --output DIR [--conf 0.25] [--watch]
+#   python annotate.py --input DIR --output DIR --models-dir DIR \
+#                      --conf F --classes "a,b" [--watch]
 
 import argparse
-import json
 import os
 import sys
-import time
 
-# Disable all ultralytics network paths (PyPI version check, GA telemetry,
-# attempt_download_asset for missing weights). Must be set BEFORE the
-# ultralytics import, since utils/__init__.py caches ONLINE at module load.
-os.environ["YOLO_OFFLINE"] = "true"
+# Ensure we can `import ml.*` regardless of CWD.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-
-def _iou_xywhn(a, b):
-    ax1 = a[0] - a[2] / 2
-    ay1 = a[1] - a[3] / 2
-    ax2 = a[0] + a[2] / 2
-    ay2 = a[1] + a[3] / 2
-    bx1 = b[0] - b[2] / 2
-    by1 = b[1] - b[3] / 2
-    bx2 = b[0] + b[2] / 2
-    by2 = b[1] + b[3] / 2
-    iw = max(0.0, min(ax2, bx2) - max(ax1, bx1))
-    ih = max(0.0, min(ay2, by2) - max(ay1, by1))
-    inter = iw * ih
-    union = a[2] * a[3] + b[2] * b[3] - inter
-    return inter / union if union > 0 else 0.0
-
-
-# Drop overlapping detections that disagree on class. COCO YOLO often
-# outputs both "cat" and "dog" for the same animal when it's uncertain;
-# writing both produces contradictory training labels.
-NMS_IOU = 0.5
-
-
-def annotate_image(model, image_path, output_dir, conf, class_map=None):
-    """Run inference on a single image and write YOLO-format labels.
-
-    class_map: dict mapping COCO class index -> project class index.
-               If None, all detections are written with their original
-               COCO class IDs.
-    """
-    results = model(image_path, conf=conf, verbose=False)
-    stem = os.path.splitext(os.path.basename(image_path))[0]
-    label_path = os.path.join(output_dir, f"{stem}.txt")
-
-    candidates = []
-    for r in results:
-        if r.boxes is None:
-            continue
-        for box in r.boxes:
-            coco_id = int(box.cls[0])
-            if class_map is not None:
-                if coco_id not in class_map:
-                    continue
-                cls_id = class_map[coco_id]
-            else:
-                cls_id = coco_id
-            x, y, w, h = box.xywhn[0].tolist()
-            candidates.append((float(box.conf[0]), cls_id, x, y, w, h))
-
-    # Class-agnostic NMS: highest-confidence detection wins; any other
-    # detection overlapping it (IoU > NMS_IOU) is dropped, including
-    # ones with a different class id.
-    candidates.sort(key=lambda c: c[0], reverse=True)
-    kept = []
-    for c in candidates:
-        box_xywh = c[2:6]
-        if any(_iou_xywhn(box_xywh, k[2:6]) > NMS_IOU for k in kept):
-            continue
-        kept.append(c)
-
-    lines = [
-        f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f}"
-        for _, cls_id, x, y, w, h in kept
-    ]
-    with open(label_path, "w") as f:
-        f.write("\n".join(lines))
-        if lines:
-            f.write("\n")
-
-    return len(kept)
-
-
-def build_class_map(project_classes, coco_names):
-    """Build a mapping from COCO class index to project class index.
-
-    Matches project class names against COCO names (case-insensitive).
-    Returns a dict {coco_index: project_index}, or None if no
-    --classes were specified (pass all detections through).
-    """
-    if not project_classes:
-        return None
-    cmap = {}
-    for proj_idx, pname in enumerate(project_classes):
-        pname_lower = pname.strip().lower()
-        for coco_idx, cname in coco_names.items():
-            if cname.lower() == pname_lower:
-                cmap[coco_idx] = proj_idx
-                break
-    return cmap
+from ml import common
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Auto-annotate images with YOLOv8n")
+    ap = argparse.ArgumentParser(description="Auto-annotate images")
     ap.add_argument("--input", required=True, help="Input images directory")
     ap.add_argument("--output", required=True, help="Output labels directory")
     ap.add_argument("--models-dir", required=True, help="Bundled models directory")
-    ap.add_argument("--model", default="yolo11m.pt", help="Model file name in --models-dir")
+    ap.add_argument("--model", default=None, help="Model file name in --models-dir")
     ap.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     ap.add_argument("--watch", action="store_true", help="Watch for new images")
-    ap.add_argument(
-        "--classes", default="",
-        help="Comma-separated project class names to filter/remap COCO detections"
-    )
+    ap.add_argument("--classes", default="",
+                    help="Comma-separated project class names")
+    ap.add_argument("--project", default=None,
+                    help="Project directory (used to read task type)")
     args = ap.parse_args()
 
-    model_path = os.path.join(args.models_dir, args.model)
-    if not os.path.exists(model_path):
-        print(json.dumps({"error": f"Model not found: {model_path}"}), flush=True)
-        sys.exit(1)
-
-    os.makedirs(args.output, exist_ok=True)
-
-    # Import here so startup errors are reported clearly
-    try:
-        from ultralytics import YOLO
-    except ImportError:
-        print(json.dumps({"error": "ultralytics not installed"}), flush=True)
-        sys.exit(1)
-
-    # Load model once
-    print(json.dumps({"status": "loading_model", "model": args.model}), flush=True)
-    model = YOLO(model_path)
-    print(json.dumps({"status": "model_ready"}), flush=True)
-
-    # Build class mapping from project classes to COCO classes
-    project_classes = [c.strip() for c in args.classes.split(",") if c.strip()] if args.classes else []
-    class_map = build_class_map(project_classes, model.names)
-    if project_classes:
-        mapped = {model.names.get(k, k): v for k, v in class_map.items()}
-        print(json.dumps({"status": "class_map", "mapping": mapped}), flush=True)
-
-    # Track which images have been processed
-    processed = set()
-
-    # Check for already-labeled images
-    if os.path.isdir(args.output):
-        for f in os.listdir(args.output):
-            if f.endswith(".txt"):
-                processed.add(f.replace(".txt", ".jpg"))
-
-    # Total number of jpgs in the input dir (already-labeled + to-do).
-    # Used by the UI to drive a progress bar.
-    total_images = 0
-    if os.path.isdir(args.input):
-        total_images = sum(
-            1 for f in os.listdir(args.input) if f.endswith(".jpg")
-        )
-    print(json.dumps({
-        "status": "started",
-        "total": total_images,
-        "already_processed": len(processed),
-    }), flush=True)
-
-    def process_new_images():
-        """Process any new images since last poll. Returns count processed."""
-        if not os.path.isdir(args.input):
-            return 0
-        images = sorted(
-            f for f in os.listdir(args.input)
-            if f.endswith(".jpg") and f not in processed
-        )
-        n_done = 0
-        for img_name in images:
-            img_path = os.path.join(args.input, img_name)
-            # Skip files that might still be written
-            try:
-                size = os.path.getsize(img_path)
-                if size == 0:
-                    continue
-            except OSError:
-                continue
-
-            detections = annotate_image(
-                model, img_path, args.output, args.conf, class_map
-            )
-            processed.add(img_name)
-            n_done += 1
-            result = {
-                "image": img_name,
-                "detections": detections,
-                "total_processed": len(processed),
-            }
-            print(json.dumps(result), flush=True)
-        return n_done
-
-    if args.watch:
-        # Poll for new images until killed. Emit an "idle" event whenever
-        # we transition from processing-work to no-work, so the UI can show
-        # that the queue is caught up (vs hanging on the last image).
-        was_busy = False
-        while True:
-            done_this_pass = process_new_images()
-            if done_this_pass > 0:
-                was_busy = True
-            elif was_busy:
-                print(json.dumps({
-                    "status": "idle",
-                    "total_processed": len(processed),
-                }), flush=True)
-                was_busy = False
-            time.sleep(0.5)
+    # Auto-annotator can be invoked without a project (general usage),
+    # in which case it defaults to bbox behavior.
+    if args.project:
+        project = common.load_project(args.project)
+        task = project["task"]
     else:
-        # One-shot: process all existing images
-        process_new_images()
-        print(json.dumps({"status": "done", "total": len(processed)}), flush=True)
+        project = None
+        task = "bbox"
+
+    # Per-task default annotator model. bbox uses the detect variant;
+    # centerpoint uses the seg variant so the centroid of the mask can
+    # serve as a better target point than the bbox midpoint.
+    DEFAULT_MODEL_BY_TASK = {
+        "bbox": "yolo11m.pt",
+        "centerpoint": "yolo11m-seg.pt",
+    }
+    if args.model is None:
+        args.model = DEFAULT_MODEL_BY_TASK.get(task, "yolo11m.pt")
+
+    common.emit({
+        "status": "annotator_dispatch",
+        "task": task,
+        "model": args.model,
+    })
+
+    if task == "bbox":
+        from ml.bbox import annotate as task_annotate
+        task_annotate.main(args, project)
+    elif task == "centerpoint":
+        from ml.centerpoint import annotate as task_annotate
+        task_annotate.main(args, project)
+    else:
+        common.emit({"error": f"Unknown task: {task}"})
+        sys.exit(1)
 
 
 if __name__ == "__main__":

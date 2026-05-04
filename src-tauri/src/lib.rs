@@ -532,7 +532,7 @@ fn enter_dfu_mode(
 
     if resolved.in_firmware_mode {
         // Let firmware finish its soft reboot before SysBoot.
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(1000));
 
         let st = state.lock().map_err(|e| e.to_string())?;
         if let Some(ref tx) = st.cmd_tx {
@@ -1378,6 +1378,7 @@ pub fn run() {
             training::cmd_ml_delete_image,
             training::cmd_ml_train,
             training::cmd_ml_stop_training,
+            training::cmd_ml_get_train_metrics,
             training::cmd_ml_export,
             training::cmd_ml_stop_export,
             training::cmd_ml_save_export,

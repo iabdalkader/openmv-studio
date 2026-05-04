@@ -375,6 +375,9 @@
     }
     .metrics-summary .key { color: #888; }
     .metrics-summary .val { color: #e0e0e0; }
+    .metrics-values {
+      display: inline-flex; gap: 18px; flex-wrap: wrap;
+    }
     .metrics-chart {
       flex: 1; min-height: 0; min-width: 0;
       position: relative; overflow: hidden;
@@ -454,6 +457,18 @@
             <code>training/&lt;project&gt;/</code>.
           </p>
 
+          <h3>Tasks</h3>
+          <p>
+            New projects pick one task type, fixed at create time:
+            <strong>bounding boxes</strong> (drag a rectangle around each
+            object; Ultralytics YOLO under the hood) or
+            <strong>center points</strong> (single click at each object's
+            center; MobileNetV2 + CenterNet heatmap regression).
+            Centerpoints are faster to label and produce smaller models;
+            bboxes carry object extent. Pick whichever fits the
+            downstream question you want the model to answer.
+          </p>
+
           <h3>Buttons</h3>
           <ul>
             <li>
@@ -526,16 +541,10 @@
         <canvas id="editor-canvas"></canvas>
       </div>
       <div class="metrics-pane" id="metrics-pane" style="display:none">
-        <div class="metrics-summary" id="metrics-summary">
+        <div class="metrics-summary" id="metrics-summary" style="display:none">
           <span><span class="key">epoch</span> <span class="val" id="m-epoch">-</span></span>
-          <span><span class="key">box_loss</span> <span class="val" id="m-box">-</span></span>
-          <span><span class="key">cls_loss</span> <span class="val" id="m-cls">-</span></span>
-          <span><span class="key">mAP50</span> <span class="val" id="m-map">-</span></span>
-          <span class="metrics-legend">
-            <span class="item"><span class="swatch" style="background:#4a9eff"></span>box_loss</span>
-            <span class="item"><span class="swatch" style="background:#ff9800"></span>cls_loss</span>
-            <span class="item"><span class="swatch" style="background:#4caf50"></span>mAP50</span>
-          </span>
+          <span class="metrics-values" id="metrics-values"></span>
+          <span class="metrics-legend" id="metrics-legend"></span>
         </div>
         <div class="metrics-chart" id="metrics-chart"></div>
       </div>
@@ -581,6 +590,11 @@
       <label for="input-classes">Class names (comma-separated)</label>
       <input type="text" id="input-classes" placeholder="e.g. cat, dog, bird">
       <div class="hint">These are the object classes to detect.</div>
+      <label for="input-task">Task</label>
+      <select id="input-task">
+        <option value="bbox" selected>Bounding boxes (detection)</option>
+        <option value="centerpoint">Center points (CenterNet)</option>
+      </select>
       <div class="modal-btns">
         <button id="btn-modal-cancel">Cancel</button>
         <button class="btn-primary" id="btn-modal-create">Create</button>
@@ -599,6 +613,7 @@
     // -- State --
     var currentProject = "";
     var currentProjectModel = "";
+    var currentTask = "bbox";  // "bbox" | "centerpoint"
     var imagePath = "";
     var classes = [];
     var annotations = [];
@@ -835,6 +850,14 @@
     function selectProject(name) {
       currentProject = name;
       thumbStrip.style.display = "";
+      // Drop any chart from a previously selected project; loadSavedMetrics
+      // below will rebuild it if this project has saved metrics.
+      if (uplotInst) {
+        uplotInst.destroy();
+        uplotInst = null;
+      }
+      uplotData = [[], [], [], []];
+      hideMetricsPane();
       invoke("cmd_ml_project_image_path", { project: name }).then(function(path) {
         imagePath = path;
         return invoke("cmd_ml_list_projects");
@@ -851,6 +874,8 @@
         }
         classes = proj.classes || [];
         currentProjectModel = proj.model || "";
+        currentTask = proj.task || "bbox";
+        applyTaskToToolbar();
         updateClassSelect();
         // Restore the model dropdown to whatever was last trained
         if (proj.model) {
@@ -886,15 +911,84 @@
         document.getElementById("btn-delete-project").disabled = false;
         document.getElementById("btn-train").disabled = false;
         document.getElementById("btn-deploy").disabled = !proj.has_trained_model;
-        return loadAnnotations();
+        return loadAnnotations().then(function() {
+          return loadSavedMetrics();
+        });
       }).catch(function(e) {
         console.error("Failed to select project:", e);
       });
     }
 
+    // Replay persisted training metrics (saved per-event by the Rust
+    // side at runs/train/metrics.jsonl). Wiped automatically when a new
+    // training run starts (cmd_ml_train clears runs/).
+    function loadSavedMetrics() {
+      if (!currentProject) {
+        return;
+      }
+      return invoke("cmd_ml_get_train_metrics", { project: currentProject })
+        .then(function(events) {
+          if (!events || !events.length) {
+            return;
+          }
+          if (selectedIndex !== -1) {
+            return;
+          }
+          var last = events[events.length - 1];
+          showMetricsPane();
+          resetMetrics(last.epochs);
+          for (var i = 0; i < events.length; i++) {
+            pushMetric(events[i].epoch, events[i].metrics);
+          }
+        })
+        .catch(function(e) {
+          console.warn("Failed to load saved metrics:", e);
+        });
+    }
+
+    // Rebuild the train-model dropdown to match the project's task.
+    // Each task picks from a different family of architectures: bbox
+    // = Ultralytics YOLO variants; centerpoint = MobileNetV2-backed
+    // CenterNet today (heatmap_backbone-based, expandable later).
+    var TASK_MODEL_OPTIONS = {
+      bbox: [
+        { value: "yolov8n", label: "YOLOv8n" },
+        { value: "yolo11n", label: "YOLO11n" },
+      ],
+      centerpoint: [
+        { value: "centernet_mbnv2", label: "CenterNet" },
+      ],
+    };
+
+    function applyTaskToToolbar() {
+      var sel = document.getElementById("train-model");
+      var prev = sel.value;
+      var opts = TASK_MODEL_OPTIONS[currentTask] || TASK_MODEL_OPTIONS.bbox;
+      sel.innerHTML = "";
+      for (var i = 0; i < opts.length; i++) {
+        var opt = document.createElement("option");
+        opt.value = opts[i].value;
+        opt.textContent = opts[i].label;
+        sel.appendChild(opt);
+      }
+      // Preserve the prior selection if it's still valid for the new
+      // task; otherwise pick the first option (default).
+      for (var j = 0; j < sel.options.length; j++) {
+        if (sel.options[j].value === prev) {
+          sel.value = prev;
+          break;
+        }
+      }
+      if (!sel.value) {
+        sel.selectedIndex = 0;
+      }
+    }
+
     function clearProjectUI() {
       classes = [];
       currentProjectModel = "";
+      currentTask = "bbox";
+      applyTaskToToolbar();
       annotations = [];
       selectedIndex = -1;
       boxes = [];
@@ -903,6 +997,14 @@
       imagePath = "";
       thumbStrip.innerHTML = "";
       thumbStrip.style.display = "none";
+      // Tear down any persisted chart from the previous project so it
+      // doesn't leak through to the next one (or to a no-project state).
+      if (uplotInst) {
+        uplotInst.destroy();
+        uplotInst = null;
+      }
+      uplotData = [[], [], [], []];
+      hideMetricsPane();
       showNoSelectionTutorial();
       editorContainer.style.display = "none";
       document.getElementById("stats-bar").textContent = "";
@@ -1005,9 +1107,12 @@
         return;
       }
 
+      var task = document.getElementById("input-task").value || "bbox";
+
       invoke("cmd_ml_create_project", {
         name: name,
         classes: classList,
+        task: task,
       }).then(function() {
         document.getElementById("modal-new-project").classList.remove("visible");
         loadProjects();
@@ -1296,9 +1401,11 @@
       var p = event.payload;
       var pct = Math.round((p.epoch / p.epochs) * 100);
       document.getElementById("train-progress-fill").style.width = pct + "%";
-      var line = "Epoch " + p.epoch + "/" + p.epochs +
-        " | mAP50: " + p.mAP50.toFixed(3) +
-        " | loss: " + (p.box_loss + p.cls_loss).toFixed(4);
+      var line = "Epoch " + p.epoch + "/" + p.epochs;
+      for (var i = 0; i < p.metrics.length; i++) {
+        var m = p.metrics[i];
+        line += " | " + m.name + ": " + formatMetric(m);
+      }
       if (p.epoch_secs) {
         line += " | " + fmtSecs(p.epoch_secs) + "/ep";
       }
@@ -1309,7 +1416,7 @@
         line += " | eta " + fmtSecs(p.eta_secs);
       }
       document.getElementById("status-text").textContent = line;
-      pushMetric(p.epoch, p.box_loss, p.cls_loss, p.mAP50);
+      pushMetric(p.epoch, p.metrics);
     });
 
     listen("ml-train-log", function(event) {
@@ -1346,10 +1453,30 @@
     }
 
     // -- Metrics pane (uPlot) --
+    // The chart is built dynamically from the metric records emitted
+    // by the training backend. Each record carries its own range hint
+    // ([lo, hi] -> fixed axis, null -> auto-range). Metrics that share
+    // the same range share a chart axis. Frontend has no task knowledge.
     var metricsPane = document.getElementById("metrics-pane");
     var metricsChart = document.getElementById("metrics-chart");
+    var metricsValues = document.getElementById("metrics-values");
+    var metricsLegend = document.getElementById("metrics-legend");
     var uplotInst = null;
-    var uplotData = [[], [], [], []];  // [epoch, box, cls, mAP50]
+    var uplotData = [[]];
+    var metricSpec = [];  // list of {name, range, scale, color}
+    var metricValueSpans = {};
+    var totalEpochsVal = 0;
+    var SERIES_COLORS = ["#4a9eff", "#ff9800", "#4caf50", "#e91e63", "#9c27b0", "#00bcd4"];
+
+    function rangeKey(range) {
+      return range ? "r:" + range[0] + ":" + range[1] : "auto";
+    }
+
+    function formatMetric(m) {
+      // Fixed-range metrics are typically scores in [0, 1] -> 3 dp.
+      // Auto-ranged metrics are typically losses with wider scale -> 4 dp.
+      return m.range ? m.value.toFixed(3) : m.value.toFixed(4);
+    }
 
     function showMetricsPane() {
       noSelection.style.display = "none";
@@ -1358,14 +1485,11 @@
     }
 
     function hideMetricsPane() {
+      // Don't destroy uplotInst -- preserving it lets a deselect/click
+      // toggle reveal the same chart instantly during training and after.
+      // resetMetrics() handles rebuild on a fresh training run.
       metricsPane.style.display = "none";
-      if (uplotInst) {
-        uplotInst.destroy();
-        uplotInst = null;
-      }
     }
-
-    var totalEpochsVal = 0;
 
     function chartSize() {
       return {
@@ -1376,40 +1500,98 @@
 
     function resetMetrics(totalEpochs) {
       totalEpochsVal = totalEpochs;
-      uplotData = [[], [], [], []];
-      document.getElementById("m-epoch").textContent = "0/" + totalEpochs;
-      document.getElementById("m-box").textContent = "-";
-      document.getElementById("m-cls").textContent = "-";
-      document.getElementById("m-map").textContent = "-";
-
+      uplotData = [[]];
+      metricSpec = [];
+      metricValueSpans = {};
+      metricsValues.innerHTML = "";
+      metricsLegend.innerHTML = "";
+      document.getElementById("m-epoch").textContent = "-";
+      // Hide the summary row until the first metric arrives so we
+      // don't show a hollow "epoch 0/N" placeholder during warmup.
+      document.getElementById("metrics-summary").style.display = "none";
       if (uplotInst) {
         uplotInst.destroy();
         uplotInst = null;
       }
+    }
+
+    function buildChart(metrics) {
+      // Group metrics by range to assign axes. First unique range
+      // gets the left side; the second (if any) gets the right side.
+      var rangeOrder = [];
+      var rangeByKey = {};
+      for (var i = 0; i < metrics.length; i++) {
+        var key = rangeKey(metrics[i].range);
+        if (!(key in rangeByKey)) {
+          rangeByKey[key] = { range: metrics[i].range, scaleId: "s" + rangeOrder.length };
+          rangeOrder.push(key);
+        }
+      }
+
+      metricSpec = [];
+      uplotData = [[]];
+      var series = [{ label: "epoch" }];
+      for (var j = 0; j < metrics.length; j++) {
+        var m = metrics[j];
+        var color = SERIES_COLORS[j % SERIES_COLORS.length];
+        var scaleId = rangeByKey[rangeKey(m.range)].scaleId;
+        metricSpec.push({ name: m.name, range: m.range, scale: scaleId, color: color });
+        series.push({ label: m.name, scale: scaleId, stroke: color, width: 2 });
+        uplotData.push([]);
+
+        var valSpan = document.createElement("span");
+        var k = document.createElement("span");
+        k.className = "key";
+        k.textContent = m.name;
+        var v = document.createElement("span");
+        v.className = "val";
+        v.textContent = "-";
+        valSpan.appendChild(k);
+        valSpan.appendChild(document.createTextNode(" "));
+        valSpan.appendChild(v);
+        metricsValues.appendChild(valSpan);
+        metricValueSpans[m.name] = v;
+
+        var lg = document.createElement("span");
+        lg.className = "item";
+        var sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.style.background = color;
+        var lbl = document.createElement("span");
+        lbl.textContent = m.name;
+        lg.appendChild(sw);
+        lg.appendChild(lbl);
+        metricsLegend.appendChild(lg);
+      }
+
+      var scales = { x: { time: false, range: [1, totalEpochsVal] } };
+      var axes = [
+        { stroke: "#888", grid: { stroke: "#2a2a2f" }, ticks: { stroke: "#3a3a3f" }, label: "epoch", labelSize: 18, labelGap: 2 },
+      ];
+      for (var r = 0; r < rangeOrder.length; r++) {
+        var info = rangeByKey[rangeOrder[r]];
+        scales[info.scaleId] = info.range ? { range: info.range } : {};
+        var firstAxis = (r === 0);
+        axes.push({
+          scale: info.scaleId,
+          side: firstAxis ? 3 : 1,
+          stroke: "#888",
+          grid: firstAxis ? { stroke: "#2a2a2f" } : { show: false },
+          ticks: { stroke: "#3a3a3f" },
+          labelSize: 18,
+          labelGap: 2,
+        });
+      }
+
       var sz = chartSize();
-      var opts = {
+      uplotInst = new uPlot({
         width: sz.width,
         height: sz.height,
-        scales: {
-          x: { time: false, range: [1, totalEpochs] },
-          loss: {},
-          map: { range: [0, 1] },
-        },
-        axes: [
-          { stroke: "#888", grid: { stroke: "#2a2a2f" }, ticks: { stroke: "#3a3a3f" }, label: "epoch", labelSize: 18, labelGap: 2 },
-          { scale: "loss", stroke: "#888", grid: { stroke: "#2a2a2f" }, ticks: { stroke: "#3a3a3f" }, label: "loss", labelSize: 18, labelGap: 2 },
-          { scale: "map", side: 1, stroke: "#888", grid: { show: false }, ticks: { stroke: "#3a3a3f" }, label: "mAP50", labelSize: 18, labelGap: 2 },
-        ],
-        series: [
-          { label: "epoch" },
-          { label: "box_loss", scale: "loss", stroke: "#4a9eff", width: 2 },
-          { label: "cls_loss", scale: "loss", stroke: "#ff9800", width: 2 },
-          { label: "mAP50",    scale: "map",  stroke: "#4caf50", width: 2 },
-        ],
+        scales: scales,
+        axes: axes,
+        series: series,
         legend: { show: false },
-      };
-      uplotInst = new uPlot(opts, uplotData, metricsChart);
-      // Re-sync size after layout settles (display: '' may not have flushed yet)
+      }, uplotData, metricsChart);
       requestAnimationFrame(function() {
         if (uplotInst) {
           uplotInst.setSize(chartSize());
@@ -1417,18 +1599,28 @@
       });
     }
 
-    function pushMetric(epoch, box, cls, map) {
+    function pushMetric(epoch, metrics) {
+      if (!uplotInst) {
+        buildChart(metrics);
+        document.getElementById("metrics-summary").style.display = "";
+      }
       uplotData[0].push(epoch);
-      uplotData[1].push(box);
-      uplotData[2].push(cls);
-      uplotData[3].push(map);
+      var byName = {};
+      for (var i = 0; i < metrics.length; i++) {
+        byName[metrics[i].name] = metrics[i];
+      }
+      for (var j = 0; j < metricSpec.length; j++) {
+        var name = metricSpec[j].name;
+        var m = byName[name];
+        uplotData[j + 1].push(m ? m.value : null);
+        if (m && metricValueSpans[name]) {
+          metricValueSpans[name].textContent = formatMetric(m);
+        }
+      }
       if (uplotInst) {
         uplotInst.setData(uplotData);
       }
       document.getElementById("m-epoch").textContent = epoch + "/" + totalEpochsVal;
-      document.getElementById("m-box").textContent = box.toFixed(4);
-      document.getElementById("m-cls").textContent = cls.toFixed(4);
-      document.getElementById("m-map").textContent = map.toFixed(3);
     }
 
     var metricsResizeObs = new ResizeObserver(function() {
@@ -1683,13 +1875,40 @@
         updateNavButtons();
         return;
       }
-      // Plain click: collapse to single-select on this image.
-      // selectImage already resets selectedSet to {index: true}.
+      // Plain click: collapse to single-select on this image. Clicking
+      // the already-selected image deselects and reveals the metrics
+      // chart (live during training, persisted after).
       if (index === selectedIndex && Object.keys(selectedSet).length === 1) {
+        deselectImage();
         return;
       }
       selectImage(index);
       renderThumbnails();
+      updateDeleteBtn();
+    }
+
+    function deselectImage() {
+      selectedIndex = -1;
+      selectedSet = {};
+      selectedBox = -1;
+      var thumbs = thumbStrip.querySelectorAll(".thumb-item");
+      for (var i = 0; i < thumbs.length; i++) {
+        thumbs[i].classList.remove("selected");
+      }
+      editorContainer.style.display = "none";
+      if (uplotInst) {
+        showMetricsPane();
+        if (uplotInst) {
+          uplotInst.setSize(chartSize());
+        }
+      } else {
+        loadSavedMetrics().then(function() {
+          if (!uplotInst) {
+            showNoSelectionTutorial();
+          }
+        });
+      }
+      updateNavButtons();
       updateDeleteBtn();
     }
 
@@ -1911,6 +2130,10 @@
       updateNavButtons();
     }
 
+    // Per-image labels are stored on disk as one whitespace-separated
+    // entry per line. Field count distinguishes the task:
+    //   bbox        : <cls> <cx> <cy> <w> <h>   (5 fields)
+    //   centerpoint : <cls> <cx> <cy>           (3 fields)
     function parseLabels(labelStr) {
       boxes = [];
       if (!labelStr || !labelStr.trim()) {
@@ -1927,6 +2150,12 @@
             w: parseFloat(parts[3]),
             h: parseFloat(parts[4]),
           });
+        } else if (parts.length >= 3) {
+          boxes.push({
+            classId: parseInt(parts[0]),
+            cx: parseFloat(parts[1]),
+            cy: parseFloat(parts[2]),
+          });
         }
       }
     }
@@ -1935,13 +2164,21 @@
       var lines = [];
       for (var i = 0; i < boxes.length; i++) {
         var b = boxes[i];
-        lines.push(
-          b.classId + " " +
-          b.cx.toFixed(6) + " " +
-          b.cy.toFixed(6) + " " +
-          b.w.toFixed(6) + " " +
-          b.h.toFixed(6)
-        );
+        if (currentTask === "centerpoint") {
+          lines.push(
+            b.classId + " " +
+            b.cx.toFixed(6) + " " +
+            b.cy.toFixed(6)
+          );
+        } else {
+          lines.push(
+            b.classId + " " +
+            b.cx.toFixed(6) + " " +
+            b.cy.toFixed(6) + " " +
+            (b.w || 0).toFixed(6) + " " +
+            (b.h || 0).toFixed(6)
+          );
+        }
       }
       return lines.join("\n") + (lines.length > 0 ? "\n" : "");
     }
@@ -1970,6 +2207,27 @@
       ctx.clearRect(0, 0, cw, ch);
 
       var s = visualScale();
+      if (currentTask === "centerpoint") {
+        _drawPoints(cw, ch, s);
+      } else {
+        _drawBoxes(cw, ch, s);
+      }
+
+      updateNavButtons();
+    }
+
+    function _drawLabel(text, x, y, color, fontPx, labelH, labelPad, textPadY) {
+      ctx.font = fontPx.toFixed(1) + "px sans-serif";
+      var tw = ctx.measureText(text).width;
+      var labelY = y - labelH >= 0 ? y - labelH : y;
+      var textY = y - labelH >= 0 ? y - textPadY : y + labelH - textPadY;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, labelY, tw + 2 * labelPad, labelH);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(text, x + labelPad, textY);
+    }
+
+    function _drawBoxes(cw, ch, s) {
       var stroke = 2 * s;
       var strokeSel = 4 * s;
       var fontPx = 12 * s;
@@ -2006,18 +2264,8 @@
         if (isSelected) {
           label += " [" + (selectedBox + 1) + "/" + boxes.length + "]";
         }
-        ctx.font = (isSelected ? "bold " : "") + fontPx.toFixed(1) + "px sans-serif";
-        if (isSelected) {
-          ctx.font = "bold " + fontSelPx.toFixed(1) + "px sans-serif";
-        }
-        var tw = ctx.measureText(label).width;
-        // Place label above the box; if there's no room, place it inside.
-        var labelY = y - labelH >= 0 ? y - labelH : y;
-        var textY = y - labelH >= 0 ? y - textPadY : y + labelH - textPadY;
-        ctx.fillStyle = color;
-        ctx.fillRect(x, labelY, tw + 2 * labelPad, labelH);
-        ctx.fillStyle = "#fff";
-        ctx.fillText(label, x + labelPad, textY);
+        _drawLabel(label, x, y, color, isSelected ? fontSelPx : fontPx,
+                   labelH, labelPad, textPadY);
 
         if (isSelected) {
           ctx.fillStyle = "#fff";
@@ -2043,8 +2291,68 @@
         ctx.strokeRect(drawStart.x, drawStart.y, drawStart.w, drawStart.h);
         ctx.setLineDash([]);
       }
+    }
 
-      updateNavButtons();
+    // Centerpoint render: each entry in `boxes` has only (classId, cx, cy).
+    // Draw a colored filled disc + crosshair + label. Selected gets an
+    // outer ring and the [N/M] label suffix.
+    function _drawPoints(cw, ch, s) {
+      var stroke = 2 * s;
+      var strokeSel = 3 * s;
+      var fontPx = 12 * s;
+      var fontSelPx = 13 * s;
+      var labelH = 16 * s;
+      var labelPad = 4 * s;
+      var textPadY = 4 * s;
+      var dotR = 5 * s;
+      var crossLen = 9 * s;
+      var ringR = 9 * s;
+
+      for (var i = 0; i < boxes.length; i++) {
+        var b = boxes[i];
+        var px = b.cx * cw;
+        var py = b.cy * ch;
+        var color = BOX_COLORS[b.classId % BOX_COLORS.length];
+        var isSelected = i === selectedBox;
+
+        // Crosshair
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isSelected ? strokeSel : stroke;
+        ctx.beginPath();
+        ctx.moveTo(px - crossLen, py); ctx.lineTo(px + crossLen, py);
+        ctx.moveTo(px, py - crossLen); ctx.lineTo(px, py + crossLen);
+        ctx.stroke();
+
+        // Dot
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(px, py, dotR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Outer selection ring
+        if (isSelected) {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = strokeSel;
+          ctx.beginPath();
+          ctx.arc(px, py, ringR, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = stroke;
+          ctx.beginPath();
+          ctx.arc(px, py, ringR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        var label = classes[b.classId] || ("class " + b.classId);
+        if (isSelected) {
+          label += " [" + (selectedBox + 1) + "/" + boxes.length + "]";
+        }
+        // Label sits to the upper-right of the point so it doesn't
+        // occlude the crosshair.
+        _drawLabel(label, px + ringR, py - ringR,
+                   color, isSelected ? fontSelPx : fontPx,
+                   labelH, labelPad, textPadY);
+      }
     }
 
     // -- Mouse events on canvas --
@@ -2059,10 +2367,28 @@
     }
 
     function hitTestBoxes(px, py) {
-      // When boxes overlap at the click point, prefer the smallest one
-      // so a tiny box inside a larger enclosing box is reachable.
+      // For centerpoint, hit-test by radius around the point.
       var cw = editorCanvas.width;
       var ch = editorCanvas.height;
+      if (currentTask === "centerpoint") {
+        var hitR = 12 * visualScale();
+        var hitR2 = hitR * hitR;
+        var bestIdx = -1;
+        var bestDist = Infinity;
+        for (var i = 0; i < boxes.length; i++) {
+          var b = boxes[i];
+          var dx = b.cx * cw - px;
+          var dy = b.cy * ch - py;
+          var d2 = dx * dx + dy * dy;
+          if (d2 <= hitR2 && d2 < bestDist) {
+            bestDist = d2;
+            bestIdx = i;
+          }
+        }
+        return bestIdx;
+      }
+      // bbox: prefer the smallest enclosing rect at the click point so
+      // a tiny box inside a larger one is reachable.
       var bestIdx = -1;
       var bestArea = Infinity;
       for (var i = 0; i < boxes.length; i++) {
@@ -2084,6 +2410,10 @@
     }
 
     function hitTestHandle(px, py) {
+      // Centerpoints have no resize handles.
+      if (currentTask === "centerpoint") {
+        return null;
+      }
       if (selectedBox < 0 || selectedBox >= boxes.length) {
         return null;
       }
@@ -2135,6 +2465,17 @@
         return;
       }
       var pos = canvasCoords(e);
+      if (currentTask === "centerpoint") {
+        var hit = hitTestBoxes(pos.x, pos.y);
+        if (hit >= 0 && hit === selectedBox) {
+          editorCanvas.style.cursor = "move";
+        } else if (hit >= 0) {
+          editorCanvas.style.cursor = "pointer";
+        } else {
+          editorCanvas.style.cursor = "crosshair";
+        }
+        return;
+      }
       var handle = hitTestHandle(pos.x, pos.y);
       if (handle) {
         editorCanvas.style.cursor = cursorForMode(handle);
@@ -2154,6 +2495,8 @@
       e.preventDefault();
       var pos = canvasCoords(e);
 
+      // bbox: handles only exist for the selected box; centerpoint
+      // skips this path (hitTestHandle returns null in that mode).
       var handle = hitTestHandle(pos.x, pos.y);
       if (handle) {
         var sb = boxes[selectedBox];
@@ -2173,13 +2516,17 @@
         dragMode = "move";
         dragOrigin = {
           mx: pos.x, my: pos.y,
-          cx: b.cx, cy: b.cy, w: b.w, h: b.h,
+          cx: b.cx, cy: b.cy,
+          w: b.w || 0, h: b.h || 0,
         };
         editorCanvas.style.cursor = "move";
         drawBoxes();
         return;
       }
 
+      // Empty area: bbox starts a drag-rect, centerpoint stages a
+      // single-click drop (committed on mouseup so the user can dismiss
+      // a misplaced click by dragging away before releasing).
       selectedBox = -1;
       drawing = true;
       drawStart = { x: pos.x, y: pos.y, w: 0, h: 0 };
@@ -2196,37 +2543,48 @@
         var dx = (pos.x - dragOrigin.mx) / cw;
         var dy = (pos.y - dragOrigin.my) / ch;
         var b = boxes[selectedBox];
-        var minSize = 5 / cw;
 
-        if (dragMode === "move") {
-          b.cx = dragOrigin.cx + dx;
-          b.cy = dragOrigin.cy + dy;
-          // Clamp center so box stays in [0,1]
-          b.cx = Math.max(b.w / 2, Math.min(1 - b.w / 2, b.cx));
-          b.cy = Math.max(b.h / 2, Math.min(1 - b.h / 2, b.cy));
+        if (currentTask === "centerpoint") {
+          // Move only -- no resize geometry for points.
+          b.cx = Math.max(0, Math.min(1, dragOrigin.cx + dx));
+          b.cy = Math.max(0, Math.min(1, dragOrigin.cy + dy));
         } else {
-          // Compute origin edges, then move the dragged edge(s)
-          var x1 = dragOrigin.cx - dragOrigin.w / 2;
-          var y1 = dragOrigin.cy - dragOrigin.h / 2;
-          var x2 = dragOrigin.cx + dragOrigin.w / 2;
-          var y2 = dragOrigin.cy + dragOrigin.h / 2;
+          var minSize = 5 / cw;
+          if (dragMode === "move") {
+            b.cx = dragOrigin.cx + dx;
+            b.cy = dragOrigin.cy + dy;
+            // Clamp center so box stays in [0,1]
+            b.cx = Math.max(b.w / 2, Math.min(1 - b.w / 2, b.cx));
+            b.cy = Math.max(b.h / 2, Math.min(1 - b.h / 2, b.cy));
+          } else {
+            // Compute origin edges, then move the dragged edge(s)
+            var x1 = dragOrigin.cx - dragOrigin.w / 2;
+            var y1 = dragOrigin.cy - dragOrigin.h / 2;
+            var x2 = dragOrigin.cx + dragOrigin.w / 2;
+            var y2 = dragOrigin.cy + dragOrigin.h / 2;
 
-          var dir = dragMode.substring(dragMode.indexOf("-") + 1);
-          if (dir.indexOf("l") >= 0) { x1 = Math.min(x2 - minSize, Math.max(0, x1 + dx)); }
-          if (dir.indexOf("r") >= 0) { x2 = Math.max(x1 + minSize, Math.min(1, x2 + dx)); }
-          if (dir.indexOf("t") >= 0) { y1 = Math.min(y2 - minSize, Math.max(0, y1 + dy)); }
-          if (dir.indexOf("b") >= 0) { y2 = Math.max(y1 + minSize, Math.min(1, y2 + dy)); }
+            var dir = dragMode.substring(dragMode.indexOf("-") + 1);
+            if (dir.indexOf("l") >= 0) { x1 = Math.min(x2 - minSize, Math.max(0, x1 + dx)); }
+            if (dir.indexOf("r") >= 0) { x2 = Math.max(x1 + minSize, Math.min(1, x2 + dx)); }
+            if (dir.indexOf("t") >= 0) { y1 = Math.min(y2 - minSize, Math.max(0, y1 + dy)); }
+            if (dir.indexOf("b") >= 0) { y2 = Math.max(y1 + minSize, Math.min(1, y2 + dy)); }
 
-          b.cx = (x1 + x2) / 2;
-          b.cy = (y1 + y2) / 2;
-          b.w = x2 - x1;
-          b.h = y2 - y1;
+            b.cx = (x1 + x2) / 2;
+            b.cy = (y1 + y2) / 2;
+            b.w = x2 - x1;
+            b.h = y2 - y1;
+          }
         }
         drawBoxes();
         return;
       }
 
       if (!drawing || !drawStart) {
+        return;
+      }
+      // Centerpoint shows no live preview during the drag-to-cancel
+      // window; the rect-style ghost is bbox-only.
+      if (currentTask === "centerpoint") {
         return;
       }
       var pos = canvasCoords(e);
@@ -2241,7 +2599,8 @@
         if (selectedBox >= 0 && dragOrigin) {
           var b = boxes[selectedBox];
           moved = b.cx !== dragOrigin.cx || b.cy !== dragOrigin.cy ||
-                  b.w !== dragOrigin.w || b.h !== dragOrigin.h;
+                  (b.w || 0) !== (dragOrigin.w || 0) ||
+                  (b.h || 0) !== (dragOrigin.h || 0);
         }
         dragMode = null;
         dragOrigin = null;
@@ -2259,8 +2618,34 @@
       drawing = false;
       var cw = editorCanvas.width;
       var ch = editorCanvas.height;
-
       var pos = canvasCoords(e);
+
+      if (currentTask === "centerpoint") {
+        // Drop a single point at the click. If the user dragged away
+        // significantly between mousedown and mouseup, treat as a
+        // dismiss (no point dropped).
+        var dx = pos.x - drawStart.x;
+        var dy = pos.y - drawStart.y;
+        var dragR = 6 * visualScale();
+        var startX = drawStart.x;
+        var startY = drawStart.y;
+        drawStart = null;
+        if (dx * dx + dy * dy > dragR * dragR) {
+          drawBoxes();
+          return;
+        }
+        var classId = parseInt(classSelect.value) || 0;
+        boxes.push({
+          classId: classId,
+          cx: Math.max(0, Math.min(1, startX / cw)),
+          cy: Math.max(0, Math.min(1, startY / ch)),
+        });
+        selectedBox = boxes.length - 1;
+        drawBoxes();
+        saveCurrentLabels();
+        return;
+      }
+
       var x = drawStart.x;
       var y = drawStart.y;
       var w = pos.x - drawStart.x;
