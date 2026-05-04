@@ -74,6 +74,18 @@ import { openTrainingWindow } from "./training";
 import { openResourceWindow, type ResourceStatus } from "./resources";
 import { message as dialogMessage } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
+
+function isDev(): boolean {
+  return window.location.protocol === "http:";
+}
+
+async function restartApp(): Promise<void> {
+  if (isDev()) {
+    window.location.reload();
+    return;
+  }
+  await relaunch();
+}
 import { getVersion } from "@tauri-apps/api/app";
 
 // --- Context menu ---
