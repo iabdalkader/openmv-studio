@@ -188,6 +188,7 @@
     }
     .thumb-item {
       position: relative; cursor: pointer;
+      width: 76px; height: 76px;
       border-radius: 4px;
       border: 2px solid #2a2a2f;
       overflow: hidden;
@@ -196,10 +197,11 @@
     .thumb-item.status-accepted { border-color: #4caf50; }
     .thumb-item.status-rejected { border-color: #f44336; }
     .thumb-item.status-rejected img { opacity: 0.45; filter: grayscale(0.6); }
+    .thumb-item.status-background { border-color: #6b7280; }
     .thumb-item.selected { border-color: #4a9eff; box-shadow: 0 0 0 2px #4a9eff44; }
-    .thumb-item.multi-selected { border-color: #ff9800; }
     .thumb-item img {
-      height: 76px; width: auto; display: block;
+      width: 100%; height: 100%; display: block;
+      object-fit: cover;
       border-radius: 2px;
     }
     .thumb-badge {
@@ -214,6 +216,8 @@
     .thumb-badge.accepted::before { content: "\2713"; }
     .thumb-badge.rejected { background: #f44336; }
     .thumb-badge.rejected::before { content: "\00d7"; font-size: 14px; }
+    .thumb-badge.background { background: #6b7280; }
+    .thumb-badge.background::before { content: "B"; font-size: 9px; font-weight: 700; }
     .thumb-delete {
       position: absolute; top: 2px; left: 2px;
       width: 16px; height: 16px; border-radius: 3px;
@@ -259,7 +263,9 @@
       text-overflow: ellipsis;
       min-width: 0;
     }
-    .controls-bar #class-select { flex: 1; min-width: 100px; }
+    .controls-bar #class-select { flex: 0 0 120px; }
+    .controls-bar .spacer { flex: 1; }
+    .status-bar .spacer { flex: 1; }
     .controls-bar button {
       padding: 4px 12px; border-radius: 4px;
       border: 1px solid #3a3a3f; background: #2a2a2f;
@@ -267,14 +273,12 @@
       white-space: nowrap; height: 26px;
     }
     .controls-bar button:hover { background: #333; }
-    .controls-bar .btn-danger { background: #6b1c1c; border-color: #8b2c2c; }
-    .controls-bar .btn-danger:hover { background: #8b2c2c; }
-    .controls-bar .btn-accept { background: #2e7d32; border-color: #388e3c; }
-    .controls-bar .btn-accept:hover { background: #388e3c; }
-    .controls-bar .btn-reject { background: #c62828; border-color: #d32f2f; }
-    .controls-bar .btn-reject:hover { background: #d32f2f; }
-    .controls-bar .spacer { flex: 1; }
-    .controls-bar .box-info { color: #666; font-size: 10px; }
+    .controls-bar .btn-danger,
+    .controls-bar .btn-reject { background: #6b1c1c; border-color: #8b2c2c; }
+    .controls-bar .btn-danger:hover,
+    .controls-bar .btn-reject:hover { background: #8b2c2c; }
+    .controls-bar .btn-accept { background: #1b5e20; border-color: #2e7d32; }
+    .controls-bar .btn-accept:hover { background: #2e7d32; }
     .controls-bar .btn-annotate-active { background: #2e7d32; border-color: #388e3c; color: #fff; }
 
     /* -- Status bar (bottom) -- */
@@ -410,7 +414,7 @@
       </select>
       <span class="spacer"></span>
       <label>Epochs:</label>
-      <input type="range" id="train-epochs" min="5" max="200" step="5" value="50">
+      <input type="range" id="train-epochs" min="10" max="200" step="10" value="50">
       <span class="epochs-val" id="epochs-val">50</span>
       <span class="spacer"></span>
       <label>Size:</label>
@@ -466,8 +470,7 @@
               <code>.tflite</code> (if needed), then for NPU targets
               compile the quantized model for the chosen accelerator
               (ST Neural-ART or Arm Ethos-U55) and flash it to the
-              connected board's ROMFS. The CPU target skips compilation
-              and flashes the <code>.tflite</code> as-is.
+              connected board's ROMFS.
             </li>
             <li>
               <strong>Add Images</strong> -- import photos from disk; drag
@@ -478,9 +481,19 @@
               to label boxes in the dataset.
             </li>
             <li>
-              <strong>Accept</strong> / <strong>Reject</strong> -- mark the
-              current image's annotation as reviewed; rejected images are
-              excluded from training.
+              <strong>Accept</strong> / <strong>Reject</strong> -- mark
+              the current image's annotation as reviewed. Accepting an
+              image with one or more boxes marks it as accepted (green).
+              Accepting an image with no boxes marks it as a background
+              image (blue) -- a negative example included in training to
+              reduce false positives. Rejected images (red) are excluded
+              from training.
+            </li>
+            <li>
+              <strong>Reset</strong> -- with one or more thumbnails
+              multi-selected, clears boxes and reverts those images to
+              pending. Useful for redoing a noisy auto-annotation pass on
+              a specific range.
             </li>
           </ul>
 
@@ -488,7 +501,10 @@
           <ul>
             <li>
               The thumbnail strip shows annotation status: green for
-              accepted, red for rejected, grey for pending.
+              accepted, slate for background (accepted with no objects),
+              red for rejected, grey for pending. Editing a box on a
+              non-pending image flips it back to pending so you can
+              re-review.
             </li>
             <li>
               Image size must match the input layer of the deployed model;
@@ -531,13 +547,12 @@
   <div class="controls-bar">
     <label>Class:</label>
     <select id="class-select"></select>
-    <span class="box-info" id="box-info"></span>
     <span class="spacer"></span>
     <button id="btn-annotate" disabled>Auto-Annotate</button>
-    <span class="separator" style="width:1px;height:18px;background:#3a3a3f"></span>
     <button id="btn-import" disabled>Add Images</button>
-    <button class="btn-danger" id="btn-delete-images" disabled>Delete Image</button>
-    <span class="separator" style="width:1px;height:18px;background:#3a3a3f"></span>
+    <button class="btn-danger" id="btn-delete-images" disabled>Delete Images</button>
+    <button class="btn-danger" id="btn-reset-annotations" disabled>Reset</button>
+    <span class="spacer"></span>
     <button class="btn-reject" id="btn-reject" disabled>Reject</button>
     <button class="btn-accept" id="btn-accept" disabled>Accept</button>
   </div>
@@ -622,7 +637,6 @@
       noSelectionText.textContent = msg;
     }
     var classSelect = document.getElementById("class-select");
-    var boxInfo = document.getElementById("box-info");
     var dropOverlay = document.getElementById("drop-overlay");
     var ctx = editorCanvas.getContext("2d");
 
@@ -675,9 +689,15 @@
           modal.classList.remove("visible");
           return;
         }
-        // Clear multi-selection if active
-        if (Object.keys(selectedSet).length > 0) {
-          selectedSet = {};
+        // Collapse multi-selection back to single-select on the
+        // current image (one click out of multi-select mode).
+        if (Object.keys(selectedSet).length > 1) {
+          if (selectedIndex >= 0) {
+            selectedSet = {};
+            selectedSet[selectedIndex] = true;
+          } else {
+            selectedSet = {};
+          }
           renderThumbnails();
           updateNavButtons();
           return;
@@ -704,12 +724,8 @@
       }
 
       if (e.key === "Delete" || e.key === "Backspace") {
-        // If multi-selection is active, delete those images instead of a box
-        if (Object.keys(selectedSet).length > 0) {
-          e.preventDefault();
-          document.getElementById("btn-delete-images").click();
-          return;
-        }
+        // Only ever delete the selected bbox; image deletion is
+        // explicit via the Delete Images button.
         deleteSelectedBox();
       }
       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
@@ -891,7 +907,6 @@
       editorContainer.style.display = "none";
       document.getElementById("stats-bar").textContent = "";
       classSelect.innerHTML = "";
-      boxInfo.textContent = "";
       document.getElementById("btn-import").disabled = true;
       document.getElementById("btn-annotate").disabled = true;
       document.getElementById("btn-delete-project").disabled = true;
@@ -900,6 +915,7 @@
       document.getElementById("btn-accept").disabled = true;
       document.getElementById("btn-reject").disabled = true;
       document.getElementById("btn-delete-images").disabled = true;
+      document.getElementById("btn-reset-annotations").disabled = true;
     }
 
     function updateClassSelect() {
@@ -1058,6 +1074,32 @@
       }
     });
 
+    document.getElementById("btn-reset-annotations").addEventListener("click", function() {
+      if (!currentProject) {
+        return;
+      }
+      var indices = Object.keys(selectedSet).map(Number);
+      if (indices.length === 0) {
+        return;
+      }
+      var images = indices.map(function(i) { return annotations[i].image; });
+      var ok = confirm(
+        "Clear annotations and reset " + images.length +
+        " image(s) to pending? Cannot be undone."
+      );
+      if (!ok) {
+        return;
+      }
+      invoke("cmd_ml_reset_annotations", {
+        project: currentProject,
+        images: images,
+      }).then(function() {
+        loadAnnotations();
+      }).catch(function(e) {
+        alert("Reset failed: " + e);
+      });
+    });
+
     function startAnnotator() {
       if (!currentProject) {
         return;
@@ -1088,23 +1130,55 @@
         btn.textContent = "Auto-Annotate";
         btn.classList.remove("btn-annotate-active");
         document.getElementById("status-text").textContent = "";
+        hideAnnotateProgress();
       }).catch(function(e) {
         console.error("Failed to stop annotator:", e);
       });
+    }
+
+    var annotateTotal = 0;
+
+    function setAnnotateProgress(done) {
+      var track = document.getElementById("train-progress-track");
+      var fill = document.getElementById("train-progress-fill");
+      if (annotateTotal <= 0) {
+        track.style.display = "none";
+        return;
+      }
+      track.style.display = "";
+      var pct = Math.min(100, (done / annotateTotal) * 100);
+      fill.style.width = pct.toFixed(1) + "%";
+    }
+
+    function hideAnnotateProgress() {
+      var track = document.getElementById("train-progress-track");
+      var fill = document.getElementById("train-progress-fill");
+      track.style.display = "none";
+      fill.style.width = "0%";
+      annotateTotal = 0;
     }
 
     listen("ml-annotate", function(event) {
       var evt = event.payload;
       document.getElementById("status-text").textContent =
         evt.image + " (" + evt.detections + " detections)";
+      if (annotateTotal > 0) {
+        setAnnotateProgress(evt.total_processed || 0);
+      }
       loadAnnotations();
     });
 
     listen("ml-annotate-status", function(event) {
       var p = event.payload || {};
-      if (p.status === "idle") {
+      if (p.status === "started") {
+        annotateTotal = p.total || 0;
+        setAnnotateProgress(p.already_processed || 0);
+      } else if (p.status === "idle") {
         document.getElementById("status-text").textContent =
           "Idle (" + (p.total_processed || 0) + " annotated, watching for new)";
+        if (annotateTotal > 0) {
+          setAnnotateProgress(annotateTotal);
+        }
         loadAnnotations();
       }
     });
@@ -1115,6 +1189,7 @@
       btn.textContent = "Auto-Annotate";
       btn.classList.remove("btn-annotate-active");
       document.getElementById("status-text").textContent = "Done";
+      hideAnnotateProgress();
     });
 
     // ========================================================================
@@ -1132,13 +1207,38 @@
         return;
       }
       var accepted = 0;
+      var background = 0;
+      var pending = 0;
       for (var i = 0; i < annotations.length; i++) {
-        if (annotations[i].status === "accepted") {
+        var s = annotations[i].status;
+        if (s === "accepted") {
           accepted++;
+        } else if (s === "background") {
+          background++;
+        } else if (s !== "rejected") {
+          pending++;
         }
       }
       if (accepted < 5) {
-        alert("Need at least 5 accepted images to train. Currently have: " + accepted);
+        var msg = "Need at least 5 accepted images to train. Currently have: " + accepted;
+        if (background > 0) {
+          msg += " (" + background + " background images will be included)";
+        }
+        alert(msg);
+        return;
+      }
+      if (pending > 0) {
+        alert(
+          pending + " image(s) are still pending review. Mark each as " +
+          "Accept or Reject before training."
+        );
+        for (var j = 0; j < annotations.length; j++) {
+          var sj = annotations[j].status;
+          if (sj !== "accepted" && sj !== "rejected" && sj !== "background") {
+            selectImage(j);
+            break;
+          }
+        }
         return;
       }
 
@@ -1531,12 +1631,14 @@
           cls += " status-accepted";
         } else if (item.status === "rejected") {
           cls += " status-rejected";
+        } else if (item.status === "background") {
+          cls += " status-background";
         }
-        if (i === selectedIndex) {
-          cls += " selected";
-        }
+        // Unified highlight: anything in selectedSet (including the
+        // current editor image, which is always part of the set after a
+        // click) gets the same blue treatment.
         if (selectedSet[i]) {
-          cls += " multi-selected";
+          cls += " selected";
         }
         div.className = cls;
         div.dataset.index = i;
@@ -1560,10 +1662,9 @@
 
     function thumbClick(index, e) {
       if (e.shiftKey && selectedIndex >= 0) {
-        // Range select
+        // shift+click: range from current to clicked, added to set.
         var lo = Math.min(selectedIndex, index);
         var hi = Math.max(selectedIndex, index);
-        selectedSet = {};
         for (var i = lo; i <= hi; i++) {
           selectedSet[i] = true;
         }
@@ -1571,9 +1672,8 @@
         updateDeleteBtn();
         return;
       }
-      var multiActive = Object.keys(selectedSet).length > 0;
-      if (e.metaKey || e.ctrlKey || multiActive) {
-        // Toggle in multi-select (also when a multi-selection is already active)
+      if (e.metaKey || e.ctrlKey) {
+        // ctrl/cmd+click: toggle this image in the set.
         if (selectedSet[index]) {
           delete selectedSet[index];
         } else {
@@ -1583,26 +1683,41 @@
         updateNavButtons();
         return;
       }
-      // Normal click with no multi-selection: select that image
-      if (index === selectedIndex) {
+      // Plain click: collapse to single-select on this image.
+      // selectImage already resets selectedSet to {index: true}.
+      if (index === selectedIndex && Object.keys(selectedSet).length === 1) {
         return;
       }
       selectImage(index);
+      renderThumbnails();
       updateDeleteBtn();
     }
 
     function updateDeleteBtn() {
+      // Selection state drives both buttons and the stats-bar count.
+      updateStats();
       var count = Object.keys(selectedSet).length;
       var btn = document.getElementById("btn-delete-images");
+      var rbtn = document.getElementById("btn-reset-annotations");
+      btn.textContent = "Delete Images";
       if (count > 1) {
         btn.disabled = false;
-        btn.textContent = "Delete " + count + " Images";
+        btn.title = "Delete " + count + " images";
       } else if (selectedIndex >= 0) {
         btn.disabled = false;
-        btn.textContent = "Delete Image";
+        btn.title = "";
       } else {
         btn.disabled = true;
-        btn.textContent = "Delete Image";
+        btn.title = "";
+      }
+      // Reset is destructive; require explicit multi-selection.
+      rbtn.textContent = "Reset";
+      if (count > 0) {
+        rbtn.disabled = false;
+        rbtn.title = "Reset " + count + " image(s) to pending";
+      } else {
+        rbtn.disabled = true;
+        rbtn.title = "";
       }
     }
 
@@ -1664,18 +1779,25 @@
       var accepted = 0;
       var rejected = 0;
       var pending = 0;
+      var background = 0;
       for (var i = 0; i < annotations.length; i++) {
-        if (annotations[i].status === "accepted") {
+        var s = annotations[i].status;
+        if (s === "accepted") {
           accepted++;
-        } else if (annotations[i].status === "rejected") {
+        } else if (s === "rejected") {
           rejected++;
+        } else if (s === "background") {
+          background++;
         } else {
           pending++;
         }
       }
+      var sel = Object.keys(selectedSet).length;
       document.getElementById("stats-bar").textContent =
         annotations.length + " images | " +
-        accepted + " accepted, " + rejected + " rejected, " + pending + " pending";
+        accepted + " accepted, " + background + " background, " +
+        rejected + " rejected, " + pending + " pending | " +
+        sel + " selected";
     }
 
     // Returns the indices that Accept/Reject/Delete should operate on.
@@ -1700,12 +1822,17 @@
       var acceptBtn = document.getElementById("btn-accept");
       var rejectBtn = document.getElementById("btn-reject");
 
-      // Count how many targets each action would actually affect
+      // Count how many targets each action would actually affect.
+      // Accept on an empty-box image routes to "background", so it's
+      // actionable as long as the target isn't already in its effective
+      // state.
       var nAcceptable = 0;
       var nRejectable = 0;
       for (var i = 0; i < targets.length; i++) {
         var a = annotations[targets[i]];
-        if (a.status !== "accepted" && a.labels && a.labels.trim()) {
+        var hasBoxes = a.labels && a.labels.trim();
+        var effAccept = hasBoxes ? "accepted" : "background";
+        if (a.status !== effAccept) {
           nAcceptable++;
         }
         if (a.status !== "rejected") {
@@ -1714,31 +1841,33 @@
       }
 
       acceptBtn.disabled = !hasProject || !hasImages || nAcceptable === 0;
-      acceptBtn.textContent = (multi && nAcceptable > 1)
-        ? "Accept (" + nAcceptable + ")"
-        : "Accept";
+      acceptBtn.textContent = "Accept";
       if (targets.length === 0) {
         acceptBtn.title = "";
       } else if (nAcceptable === 0 && !multi) {
         var only = annotations[targets[0]];
         if (only.status === "accepted") {
           acceptBtn.title = "Already accepted";
-        } else if (!only.labels || !only.labels.trim()) {
-          acceptBtn.title = "Add at least one box";
+        } else if (only.status === "background") {
+          acceptBtn.title = "Already marked as background (no boxes)";
         } else {
           acceptBtn.title = "";
         }
+      } else if (multi && nAcceptable > 0) {
+        acceptBtn.title = "Accept " + nAcceptable + " image(s)";
       } else {
         acceptBtn.title = "";
       }
 
       rejectBtn.disabled = !hasProject || !hasImages || nRejectable === 0;
-      rejectBtn.textContent = (multi && nRejectable > 1)
-        ? "Reject (" + nRejectable + ")"
-        : "Reject";
-      rejectBtn.title = (nRejectable === 0 && !multi && targets.length > 0)
-        ? "Already rejected"
-        : "";
+      rejectBtn.textContent = "Reject";
+      if (nRejectable === 0 && !multi && targets.length > 0) {
+        rejectBtn.title = "Already rejected";
+      } else if (multi && nRejectable > 0) {
+        rejectBtn.title = "Reject " + nRejectable + " image(s)";
+      } else {
+        rejectBtn.title = "";
+      }
 
       updateDeleteBtn();
     }
@@ -1753,6 +1882,9 @@
       }
       selectedIndex = index;
       selectedBox = -1;
+      // Single-select mode: collapse the set to just this image.
+      selectedSet = {};
+      selectedSet[index] = true;
       var item = annotations[index];
 
       var thumbs = thumbStrip.querySelectorAll(".thumb-item");
@@ -1820,10 +1952,32 @@
       "#9c27b0", "#00bcd4", "#cddc39", "#ff5722",
     ];
 
+    // Convert visual (CSS) pixels to canvas-internal pixels so strokes,
+    // fonts, and handles look the same on a 192x192 image and a 1920x1080
+    // image. The canvas is sized in image pixels, so a 1px CSS stroke
+    // would be invisible on HD and chunky on tiny inputs.
+    function visualScale() {
+      var rect = editorCanvas.getBoundingClientRect();
+      if (!rect.width || !editorCanvas.width) {
+        return 1;
+      }
+      return editorCanvas.width / rect.width;
+    }
+
     function drawBoxes() {
       var cw = editorCanvas.width;
       var ch = editorCanvas.height;
       ctx.clearRect(0, 0, cw, ch);
+
+      var s = visualScale();
+      var stroke = 2 * s;
+      var strokeSel = 4 * s;
+      var fontPx = 12 * s;
+      var fontSelPx = 13 * s;
+      var labelH = 16 * s;
+      var labelPad = 4 * s;
+      var textPadY = 4 * s;
+      var handleR = 7 * s;
 
       for (var i = 0; i < boxes.length; i++) {
         var b = boxes[i];
@@ -1840,27 +1994,35 @@
         }
 
         ctx.strokeStyle = isSelected ? "#ffffff" : color;
-        ctx.lineWidth = isSelected ? 4 : 2;
+        ctx.lineWidth = isSelected ? strokeSel : stroke;
         ctx.strokeRect(x, y, w, h);
         if (isSelected) {
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = stroke;
           ctx.strokeRect(x, y, w, h);
         }
 
         var label = classes[b.classId] || ("class " + b.classId);
-        ctx.font = isSelected ? "bold 13px sans-serif" : "12px sans-serif";
+        if (isSelected) {
+          label += " [" + (selectedBox + 1) + "/" + boxes.length + "]";
+        }
+        ctx.font = (isSelected ? "bold " : "") + fontPx.toFixed(1) + "px sans-serif";
+        if (isSelected) {
+          ctx.font = "bold " + fontSelPx.toFixed(1) + "px sans-serif";
+        }
         var tw = ctx.measureText(label).width;
+        // Place label above the box; if there's no room, place it inside.
+        var labelY = y - labelH >= 0 ? y - labelH : y;
+        var textY = y - labelH >= 0 ? y - textPadY : y + labelH - textPadY;
         ctx.fillStyle = color;
-        ctx.fillRect(x, y - 16, tw + 8, 16);
+        ctx.fillRect(x, labelY, tw + 2 * labelPad, labelH);
         ctx.fillStyle = "#fff";
-        ctx.fillText(label, x + 4, y - 4);
+        ctx.fillText(label, x + labelPad, textY);
 
         if (isSelected) {
-          var hs = 7;
           ctx.fillStyle = "#fff";
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = stroke;
           var handles = [
             [x, y], [x + w, y], [x, y + h], [x + w, y + h],
             [x + w / 2, y], [x + w / 2, y + h], [x, y + h / 2], [x + w, y + h / 2],
@@ -1868,26 +2030,18 @@
           for (var hi = 0; hi < handles.length; hi++) {
             var hx = handles[hi][0];
             var hy = handles[hi][1];
-            ctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
-            ctx.strokeRect(hx - hs, hy - hs, hs * 2, hs * 2);
+            ctx.fillRect(hx - handleR, hy - handleR, handleR * 2, handleR * 2);
+            ctx.strokeRect(hx - handleR, hy - handleR, handleR * 2, handleR * 2);
           }
         }
       }
 
       if (drawing && drawStart) {
         ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = stroke / 2;
+        ctx.setLineDash([4 * s, 4 * s]);
         ctx.strokeRect(drawStart.x, drawStart.y, drawStart.w, drawStart.h);
         ctx.setLineDash([]);
-      }
-
-      if (selectedBox >= 0 && selectedBox < boxes.length) {
-        var sb = boxes[selectedBox];
-        boxInfo.textContent = "Box " + (selectedBox + 1) + "/" + boxes.length +
-          " | class: " + (classes[sb.classId] || sb.classId);
-      } else {
-        boxInfo.textContent = boxes.length + " boxes";
       }
 
       updateNavButtons();
@@ -1940,7 +2094,7 @@
       var y = (b.cy - b.h / 2) * ch;
       var w = b.w * cw;
       var h = b.h * ch;
-      var hs = 9;  // slightly larger hit area than visible handle
+      var hs = 9 * visualScale();  // slightly larger hit area than visible handle
       var handles = [
         ["resize-tl", x, y],
         ["resize-tr", x + w, y],
@@ -2083,11 +2237,19 @@
 
     document.addEventListener("mouseup", function(e) {
       if (dragMode) {
+        var moved = false;
+        if (selectedBox >= 0 && dragOrigin) {
+          var b = boxes[selectedBox];
+          moved = b.cx !== dragOrigin.cx || b.cy !== dragOrigin.cy ||
+                  b.w !== dragOrigin.w || b.h !== dragOrigin.h;
+        }
         dragMode = null;
         dragOrigin = null;
         editorCanvas.style.cursor = "crosshair";
         drawBoxes();
-        saveCurrentLabels();
+        if (moved) {
+          saveCurrentLabels();
+        }
         return;
       }
 
@@ -2156,7 +2318,19 @@
       var item = annotations[selectedIndex];
       var labels = serializeLabels();
       item.labels = labels;
-      // Re-evaluate Accept/Reject now that labels are up to date
+      // Any user edit invalidates a prior verdict; revert to pending.
+      if (item.status && item.status !== "pending") {
+        item.status = "pending";
+        invoke("cmd_ml_set_review_status", {
+          project: currentProject,
+          image: item.image,
+          status: "pending",
+        }).catch(function(e) {
+          console.error("Failed to revert status to pending:", e);
+        });
+        renderThumbnails();
+        updateStats();
+      }
       updateNavButtons();
       invoke("cmd_ml_save_annotation", {
         project: currentProject,
@@ -2176,28 +2350,28 @@
         return;
       }
 
-      // Filter to indices the action would actually change
+      // Resolve each target's effective status. Accepting an image with
+      // no boxes routes to "background" (intentional empty / negative
+      // example). Skip targets already in their effective state.
       var effective = [];
       for (var i = 0; i < targets.length; i++) {
-        var a = annotations[targets[i]];
-        if (status === "accepted") {
-          if (a.status === "accepted") {
-            continue;
-          }
-          if (!a.labels || !a.labels.trim()) {
-            continue;
-          }
-        } else if (status === "rejected") {
-          if (a.status === "rejected") {
-            continue;
-          }
+        var idx = targets[i];
+        var a = annotations[idx];
+        var hasBoxes = a.labels && a.labels.trim();
+        var eff = status;
+        if (status === "accepted" && !hasBoxes) {
+          eff = "background";
         }
-        effective.push(targets[i]);
+        if (a.status === eff) {
+          continue;
+        }
+        effective.push({ idx: idx, status: eff });
       }
 
-      // For a single already-accepted image, treat Accept as "advance".
+      // Single-select mode = at most one item in selectedSet (the
+      // current image, or nothing). 2+ items means multi-select.
       var singleSelection =
-        targets.length === 1 && Object.keys(selectedSet).length === 0;
+        targets.length === 1 && Object.keys(selectedSet).length <= 1;
       if (effective.length === 0) {
         if (status === "accepted" && singleSelection) {
           advanceToNextPending();
@@ -2206,14 +2380,17 @@
       }
 
       var promises = [];
+      var redrawCanvas = false;
       for (var k = 0; k < effective.length; k++) {
-        var idx = effective[k];
+        var idx = effective[k].idx;
+        var eff = effective[k].status;
         var item = annotations[idx];
-        item.status = status;
-        if (status === "rejected") {
+        item.status = eff;
+        if (eff === "rejected" || eff === "background") {
           item.labels = "";
           if (idx === selectedIndex) {
             boxes = [];
+            redrawCanvas = true;
           }
           promises.push(invoke("cmd_ml_save_annotation", {
             project: currentProject,
@@ -2224,7 +2401,7 @@
         promises.push(invoke("cmd_ml_set_review_status", {
           project: currentProject,
           image: item.image,
-          status: status,
+          status: eff,
         }));
       }
 
@@ -2233,9 +2410,9 @@
       });
 
       // For single-target, advance to next image (preserves the snappy review flow)
-      var advance = effective.length === 1 && Object.keys(selectedSet).length === 0;
+      var advance = effective.length === 1 && Object.keys(selectedSet).length <= 1;
 
-      if (status === "rejected" && selectedIndex >= 0 && effective.indexOf(selectedIndex) >= 0) {
+      if (redrawCanvas) {
         drawBoxes();
       }
 
@@ -2256,7 +2433,7 @@
           return;
         }
         var st = annotations[probe].status;
-        if (st !== "accepted" && st !== "rejected") {
+        if (st !== "accepted" && st !== "rejected" && st !== "background") {
           selectImage(probe);
           return;
         }
