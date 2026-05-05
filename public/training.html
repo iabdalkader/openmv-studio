@@ -106,7 +106,9 @@
     /* -- Editor (center) -- */
     .editor-area {
       flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+      /* "safe center" falls back to flex-start when content
+       * overflows, so the tutorial doesn't open scrolled-to-middle. */
+      align-items: safe center; justify-content: safe center;
       position: relative; overflow: auto;
       background: #1e1e23;
       user-select: none; -webkit-user-select: none;
