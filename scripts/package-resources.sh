@@ -25,7 +25,7 @@ FIRMWARE_GH_REPO="openmv/openmv"
 # Pinned ML model weights bundled into the "models" resource. The tools/python
 # scripts (annotate/train) load .pt weights from here so ultralytics never
 # triggers attempt_download_asset() at runtime.
-MODELS_VERSION="v1.4.0"
+MODELS_VERSION="v1.5.0"
 ULTRALYTICS_ASSETS_BASE="https://github.com/ultralytics/assets/releases/download/v8.3.0"
 TORCHVISION_MODELS_BASE="https://download.pytorch.org/models"
 
@@ -342,11 +342,12 @@ package_models() {
     make_archive "models" "$stable_src"
     echo "$MODELS_VERSION" > "${OUT_DIR}/models.version"
 
-    # Development: weights are pinned and identical across channels, so
-    # reuse the already-downloaded files.  NPU configs already from HEAD.
+    # Development: same weights as stable, but fetch fresh into the
+    # dev source dir so the bundle layout is independent and any
+    # future stable/dev divergence is a one-line change here.
     local dev_src="$TMPDIR/models-dev"
     mkdir -p "$dev_src"
-    cp "$stable_src"/yolo*.pt "$dev_src/"
+    fetch_model_weights "$dev_src"
     copy_npu_configs "$dev_src"
     make_archive "models-dev" "$dev_src"
     echo "${MODELS_VERSION}-dev" > "${OUT_DIR}/models-dev.version"
