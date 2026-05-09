@@ -72,12 +72,13 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
         "--workspace", os.path.join(output_dir, "workspace"),
         "--output", os.path.join(output_dir, "gen"),
         "--verbosity", "1",
+        "--quiet",
     ]
     print(f"running stedgeai: {' '.join(generate_command)}",
           file=sys.stderr, flush=True)
     # Inherit stdout/stderr so stedgeai's diagnostics stream into our
     # log in real time (capture_output was swallowing the actual error).
-    rc = subprocess.run(generate_command, env=env).returncode
+    rc = subprocess.run(generate_command, env=env, stdin=subprocess.DEVNULL).returncode
     if rc != 0:
         raise RuntimeError(f"stedgeai generate failed (exit {rc})")
 
@@ -90,7 +91,7 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
     ]
     print(f"running N6 reloc: {' '.join(reloc_command)}",
           file=sys.stderr, flush=True)
-    rc = subprocess.run(reloc_command, env=env).returncode
+    rc = subprocess.run(reloc_command, env=env, stdin=subprocess.DEVNULL).returncode
     if rc != 0:
         raise RuntimeError(f"N6 relocation failed (exit {rc})")
 
