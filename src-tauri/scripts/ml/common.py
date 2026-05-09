@@ -393,6 +393,15 @@ def quantize_onnx_qdq(onnx_in, calib_npy, work_dir):
         QuantType,
         quantize_static,
     )
+    from onnxruntime.quantization.shape_inference import quant_pre_process
+
+    # Run the recommended graph-cleanup pass before static PTQ:
+    # symbolic shape inference, constant folding, op fusion. Silences
+    # onnxruntime's "Please consider to run pre-processing before
+    # quantization" warning and tightens the quantized model.
+    preprocessed = os.path.join(work_dir, "best_pre.onnx")
+    quant_pre_process(onnx_in, preprocessed)
+    onnx_in = preprocessed
 
     # calib_npy is BHWC float32 in [0, 255] (matches what onnx2tf consumes
     # via the [[[[0,0,0]]]] / [[[[255,255,255]]]] range hints). The
