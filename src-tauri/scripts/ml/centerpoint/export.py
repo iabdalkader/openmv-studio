@@ -133,7 +133,7 @@ def _export_onnx(best_pt, onnx_out, imgsz):
         onnx_out,
         input_names=[INPUT_OP_NAME],
         output_names=["heatmap"],
-        opset_version=17,
+        opset_version=18,
         do_constant_folding=True,
     )
     if not os.path.exists(onnx_out):
