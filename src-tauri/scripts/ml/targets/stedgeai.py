@@ -37,7 +37,7 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
     if not os.path.isfile(npu_driver):
         raise FileNotFoundError(f"npu_driver.py not found at: {npu_driver}")
     stedgeai_bin = _find_stedgeai_bin(stedgeai_dir)
-    print(f"stedgeai_bin={stedgeai_bin}", file=sys.stderr, flush=True)
+    print(f"stedgeai_bin={stedgeai_bin}", flush=True)
     if not models_dir or not os.path.isdir(models_dir):
         raise FileNotFoundError(
             "STM32 N6 target requires --models-dir with neuralart.json"
@@ -74,8 +74,7 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
         "--verbosity", "1",
         "--quiet",
     ]
-    print(f"running stedgeai: {' '.join(generate_command)}",
-          file=sys.stderr, flush=True)
+    print(f"running stedgeai: {' '.join(generate_command)}", flush=True)
     # Inherit stdout/stderr so stedgeai's diagnostics stream into our
     # log in real time (capture_output was swallowing the actual error).
     rc = subprocess.run(generate_command, env=env, stdin=subprocess.DEVNULL).returncode
@@ -89,8 +88,7 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
         "--output", output_dir,
         "--verbosity", "1",
     ]
-    print(f"running N6 reloc: {' '.join(reloc_command)}",
-          file=sys.stderr, flush=True)
+    print(f"running N6 reloc: {' '.join(reloc_command)}", flush=True)
     rc = subprocess.run(reloc_command, env=env, stdin=subprocess.DEVNULL).returncode
     if rc != 0:
         raise RuntimeError(f"N6 relocation failed (exit {rc})")
