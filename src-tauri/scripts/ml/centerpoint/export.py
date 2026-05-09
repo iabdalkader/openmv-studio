@@ -102,9 +102,19 @@ def _build_calibration(project_dir, imgsz, weights_dir, n_samples=200):
 
 
 def _export_onnx(best_pt, onnx_out, imgsz):
+    import warnings
     import torch
     from torch import nn
     from ml.networks.heatmap import build_heatmap_model
+
+    # Silence torch.export's internal pytree FutureWarning that bubbles
+    # up through copyreg during graph capture; nothing we can fix on
+    # our side.
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*LeafSpec.*deprecated.*",
+        category=FutureWarning,
+    )
 
     ckpt = torch.load(best_pt, map_location="cpu", weights_only=False)
     num_classes = ckpt["num_classes"]
