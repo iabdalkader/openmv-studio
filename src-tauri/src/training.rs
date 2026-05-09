@@ -523,6 +523,12 @@ pub async fn cmd_ml_start_annotator(
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONPYCACHEPREFIX", pycache_prefix(&app)?)
+        // Hide cosmetic resource_tracker warnings from third-party
+        // pools (onnxruntime, onnx2tf, torch DataLoader) we don't own.
+        .env(
+            "PYTHONWARNINGS",
+            "ignore::UserWarning:multiprocessing.resource_tracker",
+        )
         .args(&[
             &script,
             "--project",
@@ -838,6 +844,12 @@ pub async fn cmd_ml_train(
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONPYCACHEPREFIX", pycache_prefix(&app)?)
+        // Hide cosmetic resource_tracker warnings from third-party
+        // pools (onnxruntime, onnx2tf, torch DataLoader) we don't own.
+        .env(
+            "PYTHONWARNINGS",
+            "ignore::UserWarning:multiprocessing.resource_tracker",
+        )
         .args(&[
             &script,
             "--project",
@@ -1048,6 +1060,12 @@ pub async fn run_export(
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONPYCACHEPREFIX", pycache_prefix(&app)?)
+        // Hide cosmetic resource_tracker warnings from third-party
+        // pools (onnxruntime, onnx2tf, torch DataLoader) we don't own.
+        .env(
+            "PYTHONWARNINGS",
+            "ignore::UserWarning:multiprocessing.resource_tracker",
+        )
         .args(args);
 
     let (mut rx, child) = sidecar
