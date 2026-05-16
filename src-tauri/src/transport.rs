@@ -251,13 +251,14 @@ impl Transport {
         let mut fragments: Vec<u8> = Vec::new();
         let idle = timeout.unwrap_or(self.timeout);
         let mut deadline = Instant::now() + idle;
+        let mut recv: usize = 0;
 
         loop {
             if Instant::now() >= deadline {
                 if idle.as_millis() > 10 {
                     log::warn!(
-                        "recv_packet: idle timeout after {:?}, buf={} bytes, fragments={}",
-                        idle, self.available(), fragments.len()
+                        "recv_packet: idle timeout after {:?}, buf={} recv={} fragments={}",
+                        idle, self.available(), recv, fragments.len()
                     );
                 }
                 return Err(TransportError::Timeout);
@@ -270,6 +271,7 @@ impl Transport {
                 None => return Err(TransportError::NotConnected),
             }
             if self.buf.len() != before {
+                recv += self.buf.len() - before;
                 deadline = Instant::now() + idle;
             }
 
