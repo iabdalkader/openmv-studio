@@ -47,6 +47,7 @@ impl Backend for SerialBackend {
         self.close();
         let mut port = serialport::new(&self.name, 921600)
             .timeout(Duration::from_secs(1))
+            .dtr_on_open(true)
             .open()
             .map_err(|e| TransportError::IoError(e.to_string()))?;
         let _ = port.clear(serialport::ClearBuffer::All);
