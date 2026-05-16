@@ -881,15 +881,21 @@ fn cmd_list_examples(
         .as_deref()
         .and_then(|d| serde_json::from_str(d).ok());
 
-    let allowed_paths: Option<Vec<String>> = if board.is_some() || sensor.is_some() {
+    // PathBuf for component-aware comparisons (cross-platform).
+    let allowed_paths: Option<Vec<std::path::PathBuf>> = if board.is_some() || sensor.is_some() {
         index.as_ref().and_then(|idx| {
             let entries = idx["entries"].as_array();
-            Some(filter_entries(
-                entries,
-                board.as_deref(),
-                sensor.as_deref(),
-                &examples_dir,
-            ))
+            Some(
+                filter_entries(
+                    entries,
+                    board.as_deref(),
+                    sensor.as_deref(),
+                    &examples_dir,
+                )
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .collect(),
+            )
         })
     } else {
         None // no filter -- show all
@@ -897,7 +903,7 @@ fn cmd_list_examples(
 
     // Collect flatten prefixes from "path" entries ending with /*
     // Only flatten when filtering is active -- unfiltered shows full tree
-    let flatten_dirs: Vec<String> = if board.is_some() || sensor.is_some() {
+    let flatten_dirs: Vec<std::path::PathBuf> = if board.is_some() || sensor.is_some() {
         index
             .as_ref()
             .and_then(|idx| idx["entries"].as_array())
@@ -906,7 +912,7 @@ fn cmd_list_examples(
                     .iter()
                     .filter_map(|e| e["path"].as_str())
                     .filter_map(|p| p.strip_suffix("/*"))
-                    .map(|p| p.to_string())
+                    .map(std::path::PathBuf::from)
                     .collect()
             })
             .unwrap_or_default()
@@ -918,8 +924,8 @@ fn cmd_list_examples(
     fn scan(
         dir: &std::path::Path,
         base: &std::path::Path,
-        allowed: &Option<Vec<String>>,
-        flatten_dirs: &[String],
+        allowed: &Option<Vec<std::path::PathBuf>>,
+        flatten_dirs: &[std::path::PathBuf],
     ) -> Vec<serde_json::Value> {
         let mut items = Vec::new();
         let Ok(rd) = std::fs::read_dir(dir) else {
@@ -936,18 +942,15 @@ fn cmd_list_examples(
             }
             if path.is_dir() {
                 let rel = path.strip_prefix(base).unwrap_or(&path);
-                let rel_str = rel.to_string_lossy().replace('\\', "/");
 
                 // Check if this dir is a flatten target -- hoist its children
-                if flatten_dirs.iter().any(|f| f == &rel_str) {
+                if flatten_dirs.iter().any(|f| f == rel) {
                     let children = scan(&path, base, allowed, flatten_dirs);
                     items.extend(children);
                 } else {
                     // Check if this dir is an ancestor of a flatten target
                     // If so, scan into it but don't create a tree node -- inline results
-                    let is_ancestor = flatten_dirs
-                        .iter()
-                        .any(|f| f.starts_with(&format!("{}/", rel_str)));
+                    let is_ancestor = flatten_dirs.iter().any(|f| f.starts_with(rel));
                     if is_ancestor {
                         let children = scan(&path, base, allowed, flatten_dirs);
                         items.extend(children);
@@ -970,8 +973,7 @@ fn cmd_list_examples(
                 // Check if this file is allowed by the filter
                 if let Some(allowed_list) = allowed {
                     let rel = path.strip_prefix(base).unwrap_or(&path);
-                    let rel_str = rel.to_string_lossy();
-                    if !allowed_list.iter().any(|a| rel_str.starts_with(a)) {
+                    if !allowed_list.iter().any(|a| rel.starts_with(a)) {
                         continue;
                     }
                 }
@@ -1070,8 +1072,10 @@ fn filter_entries(
             if let Ok(rd) = std::fs::read_dir(&dir) {
                 for child in rd.filter_map(|e| e.ok()) {
                     if child.path().is_dir() {
-                        let child_path =
-                            format!("{}/{}", prefix, child.file_name().to_string_lossy());
+                        let child_path = std::path::Path::new(prefix)
+                            .join(child.file_name())
+                            .to_string_lossy()
+                            .into_owned();
                         allowed.push(child_path);
                     }
                 }
@@ -1170,10 +1174,14 @@ fn cmd_update_recent_menu(paths: Vec<String>, app: tauri::AppHandle) -> Result<(
             .map_err(|e| e.to_string())?;
     } else {
         for (i, path) in paths.iter().enumerate() {
-            let label = path.rsplit('/').next().unwrap_or(path);
+            // file_name() handles both / and \.
+            let label = std::path::Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.clone());
             recent
                 .append(
-                    &MenuItemBuilder::with_id(format!("recent:{}", i), label)
+                    &MenuItemBuilder::with_id(format!("recent:{}", i), &label)
                         .build(&app)
                         .map_err(|e| e.to_string())?,
                 )

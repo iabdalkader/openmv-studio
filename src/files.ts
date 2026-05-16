@@ -43,13 +43,20 @@ export function getActiveFile(): OpenFile | undefined {
   return openFiles[activeFileIndex];
 }
 
+// Sync basename, handles both / and \ (Tauri returns OS-native paths).
+function basename(p: string): string {
+  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+
 export function fileName(f: OpenFile): string {
   if (f.name) {
     return f.name;
   }
 
   if (f.path) {
-    return f.path.split("/").pop() || f.path;
+    return basename(f.path) || f.path;
   }
   return `untitled_${f.untitledIndex ?? 0}`;
 }
@@ -60,7 +67,7 @@ export function createFile(
   isExample: boolean = false,
 ): OpenFile {
   const model = monaco.editor.createModel(content, "python");
-  const name = isExample && path ? path.split("/").pop() || null : null;
+  const name = isExample && path ? basename(path) || null : null;
   const untitledIndex = path === null && !isExample ? untitledCounter++ : null;
 
   const file: OpenFile = {

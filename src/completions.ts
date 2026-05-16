@@ -270,7 +270,8 @@ export async function registerCompletions(
   const stubPaths = await invoke<string[]>("cmd_list_stubs");
 
   for (const stubPath of stubPaths) {
-    const filename = stubPath.split("/").pop() || stubPath.split("\\").pop();
+    const i = Math.max(stubPath.lastIndexOf("/"), stubPath.lastIndexOf("\\"));
+    const filename = i >= 0 ? stubPath.slice(i + 1) : stubPath;
 
     if (!filename) {
       continue;
