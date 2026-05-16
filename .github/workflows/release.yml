@@ -81,8 +81,10 @@ jobs:
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
           SM_CODE_SIGNING_CERT_SHA1_HASH: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
         run: |
-          export SM_CLIENT_CERT_FILE="$RUNNER_TEMP/certificate.p12"
-          echo "$SM_CLIENT_CERT_FILE_B64" | base64 --decode > "$SM_CLIENT_CERT_FILE"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$SM_CLIENT_CERT_FILE_B64" | base64 --decode > "$CERT_PATH"
+          echo "SM_CLIENT_CERT_FILE=$CERT_PATH" >> "$GITHUB_ENV"
+          export SM_CLIENT_CERT_FILE="$CERT_PATH"
           echo "C:\Program Files (x86)\Windows Kits\10\App Certification Kit" >> "$GITHUB_PATH"
           sed -i "s/REPLACE_AT_BUILD_TIME/${SM_CODE_SIGNING_CERT_SHA1_HASH}/" src-tauri/tauri.conf.json
           smctl windows certsync
@@ -96,6 +98,9 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SM_HOST: ${{ secrets.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "OpenMV Studio ${{ github.ref_name }}"
