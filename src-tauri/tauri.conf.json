@@ -39,6 +39,11 @@
     ],
     "category": "Development",
     "resources": ["scripts/"],
+    "windows": {
+      "certificateThumbprint": "REPLACE_AT_BUILD_TIME",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    },
     "linux": {
       "deb": {
         "depends": [

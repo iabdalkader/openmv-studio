@@ -67,6 +67,26 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Install smctl (Windows)
+        if: runner.os == 'Windows'
+        uses: digicert/ssm-code-signing@v1.0.1
+
+      - name: Import Windows certificate
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          SM_HOST: ${{ secrets.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE_B64: ${{ secrets.SM_CLIENT_CERT_FILE_B64 }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_CODE_SIGNING_CERT_SHA1_HASH: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
+        run: |
+          export SM_CLIENT_CERT_FILE="$RUNNER_TEMP/certificate.p12"
+          echo "$SM_CLIENT_CERT_FILE_B64" | base64 --decode > "$SM_CLIENT_CERT_FILE"
+          echo "C:\Program Files (x86)\Windows Kits\10\App Certification Kit" >> "$GITHUB_PATH"
+          sed -i "s/REPLACE_AT_BUILD_TIME/${SM_CODE_SIGNING_CERT_SHA1_HASH}/" src-tauri/tauri.conf.json
+          smctl windows certsync
+
       - run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
