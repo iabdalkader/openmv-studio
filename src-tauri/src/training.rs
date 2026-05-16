@@ -518,7 +518,7 @@ pub async fn cmd_ml_start_annotator(
         .map_err(|e| format!("Failed to parse project.json: {}", e))?;
     let classes_csv = config.classes.join(",");
 
-    let sidecar = app
+    let mut builder = app
         .shell()
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
@@ -528,22 +528,29 @@ pub async fn cmd_ml_start_annotator(
         .env(
             "PYTHONWARNINGS",
             "ignore::UserWarning:multiprocessing.resource_tracker",
-        )
-        .args(&[
-            &script,
-            "--project",
-            &proj.to_string_lossy(),
-            "--input",
-            &images_dir.to_string_lossy(),
-            "--output",
-            &labels_dir.to_string_lossy(),
-            "--models-dir",
-            &models_dir,
-            "--conf",
-            &conf_str,
-            "--classes",
-            &classes_csv,
-        ]);
+        );
+
+    // Polars cpu_check raises on Windows ARM (Prism) since CPUID returns
+    // an empty flag dict; bypass it so the bundled wheels load.
+    if cfg!(target_os = "windows") {
+        builder = builder.env("POLARS_SKIP_CPU_CHECK", "1");
+    }
+
+    let sidecar = builder.args(&[
+        &script,
+        "--project",
+        &proj.to_string_lossy(),
+        "--input",
+        &images_dir.to_string_lossy(),
+        "--output",
+        &labels_dir.to_string_lossy(),
+        "--models-dir",
+        &models_dir,
+        "--conf",
+        &conf_str,
+        "--classes",
+        &classes_csv,
+    ]);
 
     let (mut rx, child) = sidecar
         .spawn()
@@ -839,7 +846,7 @@ pub async fn cmd_ml_train(
         format!("{}.pt", model_arg)
     };
 
-    let sidecar = app
+    let mut builder = app
         .shell()
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
@@ -849,20 +856,25 @@ pub async fn cmd_ml_train(
         .env(
             "PYTHONWARNINGS",
             "ignore::UserWarning:multiprocessing.resource_tracker",
-        )
-        .args(&[
-            &script,
-            "--project",
-            &proj.to_string_lossy(),
-            "--models-dir",
-            &models_dir,
-            "--epochs",
-            &epochs_str,
-            "--imgsz",
-            &imgsz_str,
-            "--model",
-            &model_str,
-        ]);
+        );
+
+    if cfg!(target_os = "windows") {
+        builder = builder.env("POLARS_SKIP_CPU_CHECK", "1");
+    }
+
+    let sidecar = builder.args(&[
+        &script,
+        "--project",
+        &proj.to_string_lossy(),
+        "--models-dir",
+        &models_dir,
+        "--epochs",
+        &epochs_str,
+        "--imgsz",
+        &imgsz_str,
+        "--model",
+        &model_str,
+    ]);
 
     let (mut rx, child) = sidecar
         .spawn()
@@ -1055,7 +1067,7 @@ pub async fn run_export(
         target
     );
 
-    let sidecar = app
+    let mut builder = app
         .shell()
         .command(&py)
         .env("PYTHONUNBUFFERED", "1")
@@ -1065,8 +1077,13 @@ pub async fn run_export(
         .env(
             "PYTHONWARNINGS",
             "ignore::UserWarning:multiprocessing.resource_tracker",
-        )
-        .args(args);
+        );
+
+    if cfg!(target_os = "windows") {
+        builder = builder.env("POLARS_SKIP_CPU_CHECK", "1");
+    }
+
+    let sidecar = builder.args(args);
 
     let (mut rx, child) = sidecar
         .spawn()
