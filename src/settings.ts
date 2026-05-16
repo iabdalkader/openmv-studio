@@ -32,6 +32,7 @@ import {
 } from "./files";
 import { showWelcome } from "./welcome";
 import { loadExamples, resetExamples, clearExamplesTree } from "./panels";
+import { getEffectiveTheme } from "./theme";
 import {
   shortcutBindings,
   shortcutOverrides,
@@ -322,6 +323,7 @@ export async function openSettings() {
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   settingsWin = win;

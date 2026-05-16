@@ -4,6 +4,7 @@
 
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { childWindowSize, state } from "./state";
+import { getEffectiveTheme } from "./theme";
 
 export async function openTrainingWindow(): Promise<void> {
   const existing = await WebviewWindow.getByLabel("training");
@@ -22,6 +23,7 @@ export async function openTrainingWindow(): Promise<void> {
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   w.once("tauri://created", () => {

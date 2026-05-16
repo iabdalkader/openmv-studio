@@ -8,6 +8,7 @@ import { childWindowSize, state } from "./state";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getEffectiveTheme } from "./theme";
 
 let pinoutWin: WebviewWindow | null = null;
 
@@ -27,6 +28,7 @@ export async function openPinoutViewer() {
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   pinoutWin = win;

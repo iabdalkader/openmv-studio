@@ -734,6 +734,7 @@ async function eraseFilesystem() {
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   win.once("tauri://created", () => {
@@ -1387,6 +1388,7 @@ async function openAboutDialog() {
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   aboutWin = win;

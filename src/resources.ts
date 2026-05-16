@@ -10,6 +10,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { state, dialogWindowSize } from "./state";
+import { getEffectiveTheme } from "./theme";
 
 export interface ResourceStatus {
   name: string;
@@ -36,6 +37,7 @@ export async function openResourceWindow(
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   await new Promise<void>((resolve, reject) => {

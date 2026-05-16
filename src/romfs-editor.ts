@@ -4,6 +4,7 @@
 
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { childWindowSize, state } from "./state";
+import { getEffectiveTheme } from "./theme";
 
 export async function openRomfsEditor(): Promise<void> {
   const existing = await WebviewWindow.getByLabel("romfs-editor");
@@ -22,6 +23,7 @@ export async function openRomfsEditor(): Promise<void> {
     center: true,
     skipTaskbar: true,
     parent: "main",
+    theme: getEffectiveTheme(),
   });
 
   w.once("tauri://created", () => {
