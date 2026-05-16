@@ -57,6 +57,53 @@ fn cmd_setup_done(app: tauri::AppHandle) {
     flag.0.store(true, Ordering::SeqCst);
 }
 
+// Win32 popup-menu dark mode. muda's `set_theme_for_hwnd` only colors the
+// menubar strip; the File/Edit/... dropdowns are Win32 popup menus that
+// follow `SetPreferredAppMode` (uxtheme.dll ordinal 135). Setting it makes
+// open submenus follow on next show; FlushMenuThemes refreshes cached state.
+#[cfg(target_os = "windows")]
+fn set_windows_app_mode(dark: bool) {
+    use std::ffi::c_void;
+    use std::os::raw::c_char;
+
+    type SetPreferredAppModeFn = unsafe extern "system" fn(i32) -> i32;
+    type FlushMenuThemesFn = unsafe extern "system" fn();
+
+    unsafe extern "system" {
+        fn LoadLibraryW(name: *const u16) -> *mut c_void;
+        fn GetProcAddress(handle: *mut c_void, name: *const c_char) -> *mut c_void;
+    }
+
+    let name: Vec<u16> = "uxtheme.dll\0".encode_utf16().collect();
+    unsafe {
+        let lib = LoadLibraryW(name.as_ptr());
+        if lib.is_null() {
+            return;
+        }
+
+        let set_mode = GetProcAddress(lib, 135 as *const c_char);
+        if !set_mode.is_null() {
+            let f: SetPreferredAppModeFn = std::mem::transmute(set_mode);
+            // 2 = ForceDark, 3 = ForceLight.
+            f(if dark { 2 } else { 3 });
+        }
+
+        let flush = GetProcAddress(lib, 136 as *const c_char);
+        if !flush.is_null() {
+            let f: FlushMenuThemesFn = std::mem::transmute(flush);
+            f();
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_windows_app_mode(_dark: bool) {}
+
+#[tauri::command]
+fn cmd_set_dark_menus(dark: bool) {
+    set_windows_app_mode(dark);
+}
+
 pub(crate) fn resolve_resource(app: &tauri::AppHandle, name: &str) -> std::path::PathBuf {
     // Check app data dir first for runtime-downloaded resources
     let top = name.split('/').next().unwrap_or("");
@@ -1368,6 +1415,7 @@ pub fn run() {
             cmd_file_mtime,
             cmd_update_recent_menu,
             cmd_setup_done,
+            cmd_set_dark_menus,
             resources::cmd_check_resources,
             resources::cmd_fetch_manifest,
             resources::cmd_download_resource,
@@ -1432,6 +1480,11 @@ pub fn run() {
                 st.boards = boards;
                 st.sensors = sensors;
             }
+
+            // Match tauri.conf.json's main-window default theme so popup
+            // menus open dark on first show. Frontend re-applies on theme
+            // change via cmd_set_dark_menus.
+            set_windows_app_mode(true);
 
             let menu = build_menu(app)?;
             // On macOS the menu bar is app-level. On Linux, setting it

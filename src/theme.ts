@@ -8,6 +8,7 @@
 // Defines color schemes for both the Monaco editor and the CSS UI.
 
 import * as monaco from "monaco-editor";
+import { invoke } from "@tauri-apps/api/core";
 import { getAllWindows } from "@tauri-apps/api/window";
 import { state, scheduleSaveSettings } from "./state";
 import { resetMemGraphCache } from "./panels";
@@ -18,6 +19,9 @@ async function applyOsWindowTheme(effective: "dark" | "light") {
 
     await Promise.all(windows.map((w) => w.setTheme(effective).catch(() => {})));
   } catch {}
+
+  // Win32 popup menu / submenu dark mode (no-op on macOS/Linux).
+  invoke("cmd_set_dark_menus", { dark: effective === "dark" }).catch(() => {});
 }
 
 const DARK_THEME: monaco.editor.IStandaloneThemeData = {
