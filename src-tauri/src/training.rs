@@ -203,6 +203,17 @@ fn stedgeai_dir(app: &AppHandle) -> Result<String, String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
+fn gcc_bin_dir(app: &AppHandle) -> Result<String, String> {
+    let dir = resolve_resource(app, "tools/gcc/bin");
+    if !dir.exists() {
+        return Err(format!(
+            "arm-none-eabi-gcc not found at {}. Download resources from Settings.",
+            dir.display()
+        ));
+    }
+    Ok(dir.to_string_lossy().to_string())
+}
+
 fn script_path(app: &AppHandle, script: &str) -> Result<String, String> {
     let path = app
         .path()
@@ -1081,6 +1092,17 @@ pub async fn run_export(
 
     if cfg!(target_os = "windows") {
         builder = builder.env("POLARS_SKIP_CPU_CHECK", "1");
+    }
+
+    if target == "st-neural-art" {
+        let gcc = gcc_bin_dir(&app)?;
+        let mut paths = vec![std::path::PathBuf::from(gcc)];
+        if let Some(p) = std::env::var_os("PATH") {
+            paths.extend(std::env::split_paths(&p));
+        }
+        let new_path = std::env::join_paths(paths)
+            .map_err(|e| format!("Failed to build PATH: {}", e))?;
+        builder = builder.env("PATH", new_path);
     }
 
     let sidecar = builder.args(args);
