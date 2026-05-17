@@ -1448,6 +1448,11 @@ listen<string>("menu-action", async (event) => {
     case "save-as":
       saveFileAs();
       break;
+    case "close-tab":
+      if (openFiles.length > 0) {
+        closeFile(activeFileIndex);
+      }
+      break;
     case "reset-device":
       if (!state.isConnected) {
         await doConnect();

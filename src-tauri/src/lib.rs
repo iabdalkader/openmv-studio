@@ -1287,17 +1287,22 @@ fn build_menu(
         .text("save", "Save")
         .text("save-as", "Save As...")
         .separator()
-        .close_window();
+        .item(
+            &MenuItemBuilder::with_id("close-tab", "Close")
+                .accelerator("CmdOrCtrl+W")
+                .build(app)?,
+        );
 
+    // No "Close Window": we are a single-window app and closing the main
+    // window exits the process, so Close would duplicate Quit. On macOS
+    // the app menu already provides Quit; on Linux/Windows add it here.
     #[cfg(not(target_os = "macos"))]
     {
-        file_builder = file_builder
-            .separator()
-            .item(
-                &MenuItemBuilder::with_id("quit", "Quit")
-                    .accelerator("CmdOrCtrl+Q")
-                    .build(app)?,
-            );
+        file_builder = file_builder.separator().item(
+            &MenuItemBuilder::with_id("quit", "Quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?,
+        );
     }
 
     let file = file_builder.build()?;
