@@ -226,7 +226,7 @@ async fn download_resource(
     }
 
     // Phase 3: Extract to staging
-    emit_progress(app, name, "extracting", "Extracting...", downloaded, size);
+    emit_progress(app, name, "extracting", "Extracting...", 0, size);
 
     if staging_path.exists() {
         std::fs::remove_dir_all(&staging_path)
@@ -267,143 +267,78 @@ async fn download_resource(
     Ok(())
 }
 
-/// Extract a .tar.xz archive. For tools, flatten the SDK directory structure.
-fn extract_tar_xz(archive: &Path, dest: &Path, name: &str, app: &AppHandle) -> Result<(), String> {
-    let file = std::fs::File::open(archive)
-        .map_err(|e| format!("Failed to open archive {}: {}", archive.display(), e))?;
-    let decompressed = xz2::read::XzDecoder::new(file);
-    let mut tar = tar::Archive::new(decompressed);
-
-    if name == "tools" {
-        // Tools archive has a top-level directory like tools-<plat>/.
-        // We flatten it: extract bin/dfu-util*, stedgeai/, python/ into dest root.
-        extract_tools_archive(&mut tar, dest, app, name)?;
-    } else {
-        // Strip the single archive-root directory (e.g. firmware/, examples/,
-        // stubs/) so per-category subdirs land directly under dest.
-        let mut count: u64 = 0;
-        for entry in tar.entries().map_err(|e| format!("Tar read error: {}", e))? {
-            let mut entry = entry.map_err(|e| format!("Tar entry error: {}", e))?;
-            let path = entry
-                .path()
-                .map_err(|e| format!("Tar path error: {}", e))?
-                .into_owned();
-
-            let components: Vec<_> = path.components().collect();
-            if components.len() <= 1 {
-                continue;
-            }
-            let stripped: PathBuf = components[1..].iter().collect();
-            let out_path = dest.join(&stripped);
-
-            if entry.header().entry_type().is_dir() {
-                let _ = std::fs::create_dir_all(&out_path);
-            } else {
-                if let Some(parent) = out_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                entry
-                    .unpack(&out_path)
-                    .map_err(|e| format!("Failed to extract {}: {}", stripped.display(), e))?;
-                count += 1;
-                if count % 50 == 0 {
-                    emit_progress(
-                        app, name, "extracting",
-                        &format!("Extracting ({} files)...", count), 0, 0,
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(())
+/// Reader wrapper that counts bytes pulled from the underlying source so
+/// we can drive an extraction progress bar off compressed bytes consumed.
+struct CountingReader<R> {
+    inner: R,
+    counter: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
-/// Extract SDK tools archive, flattening to just the tools we need.
-fn extract_tools_archive(
-    tar: &mut tar::Archive<xz2::read::XzDecoder<std::fs::File>>,
-    dest: &Path,
-    app: &AppHandle,
-    name: &str,
-) -> Result<(), String> {
+impl<R: std::io::Read> std::io::Read for CountingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.counter
+            .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+        Ok(n)
+    }
+}
+
+/// Extract a .tar.xz archive into `dest`, stripping the single top-level
+/// wrapper directory (tools-<plat>/, openmv-sdk-..., firmware-..., etc.).
+/// Uses Entry::unpack_in so hard links inside the archive resolve against
+/// `dest` (system-tar semantics). Emits progress driven by compressed bytes
+/// consumed from the source file.
+fn extract_tar_xz(archive: &Path, dest: &Path, name: &str, app: &AppHandle) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+
+    let file = std::fs::File::open(archive)
+        .map_err(|e| format!("Failed to open archive {}: {}", archive.display(), e))?;
+    let archive_size = file
+        .metadata()
+        .map_err(|e| format!("Failed to stat archive: {}", e))?
+        .len();
+
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let reader = CountingReader { inner: file, counter: counter.clone() };
+    let decompressed = xz2::read::XzDecoder::new(reader);
+    let mut tar = tar::Archive::new(decompressed);
+    tar.set_preserve_permissions(true);
+
+    emit_progress(app, name, "extracting", "Extracting...", 0, archive_size);
+
     let mut count: u64 = 0;
     for entry in tar.entries().map_err(|e| format!("Tar read error: {}", e))? {
         let mut entry = entry.map_err(|e| format!("Tar entry error: {}", e))?;
-        let path = entry
-            .path()
-            .map_err(|e| format!("Tar path error: {}", e))?
-            .into_owned();
-
-        // Path looks like: tools-<plat>/bin/dfu-util
-        //                   tools-<plat>/stedgeai/...
-        //                   tools-<plat>/python/...
-        let components: Vec<_> = path.components().collect();
-        if components.len() < 2 {
-            continue;
-        }
-
-        // Second component is bin/, stedgeai/, or python/
-        let second = components[1].as_os_str().to_string_lossy();
-
-        let out_rel: PathBuf = match second.as_ref() {
-            "bin" => {
-                // bin/dfu-util* -> dfu-util* (flatten bin/ away)
-                if components.len() < 3 {
-                    continue;
-                }
-                let filename = components[2].as_os_str().to_string_lossy();
-                if !filename.starts_with("dfu-util") {
-                    continue;
-                }
-                PathBuf::from(filename.as_ref())
-            }
-            "stedgeai" | "python" => {
-                // Keep directory structure: stedgeai/... or python/...
-                components[1..].iter().collect()
-            }
-            _ => continue,
-        };
-
-        let out_path = dest.join(&out_rel);
-
-        if entry.header().entry_type().is_dir() {
-            let _ = std::fs::create_dir_all(&out_path);
-        } else {
-            if let Some(parent) = out_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            entry
-                .unpack(&out_path)
-                .map_err(|e| format!("Failed to extract {}: {}", out_rel.display(), e))?;
-            count += 1;
-            if count % 100 == 0 {
-                emit_progress(
-                    app, name, "extracting",
-                    &format!("Extracting ({} files)...", count), 0, 0,
-                );
-            }
+        entry
+            .unpack_in(dest)
+            .map_err(|e| format!("Failed to extract entry: {}", e))?;
+        count += 1;
+        if count % 50 == 0 {
+            emit_progress(
+                app, name, "extracting",
+                &format!("Extracting ({} files)...", count),
+                counter.load(Ordering::Relaxed),
+                archive_size,
+            );
         }
     }
 
-    // Make dfu-util executable on Unix
-    #[cfg(unix)]
+    // Move the wrapper's children up to dest, then drop the empty wrapper.
+    let wrapper = std::fs::read_dir(dest)
+        .map_err(|e| format!("Failed to read extracted dir: {}", e))?
+        .filter_map(|e| e.ok())
+        .find(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .ok_or_else(|| "Archive did not contain a wrapper directory".to_string())?
+        .path();
+
+    for entry in std::fs::read_dir(&wrapper)
+        .map_err(|e| format!("Failed to read wrapper dir: {}", e))?
     {
-        use std::os::unix::fs::PermissionsExt;
-        let Ok(entries) = std::fs::read_dir(dest) else {
-            return Ok(());
-        };
-        for entry in entries.filter_map(|e| e.ok()) {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if name.starts_with("dfu-util") {
-                let _ = std::fs::set_permissions(
-                    entry.path(),
-                    std::fs::Permissions::from_mode(0o755),
-                );
-            }
-        }
+        let entry = entry.map_err(|e| format!("Tree walk error: {}", e))?;
+        std::fs::rename(entry.path(), dest.join(entry.file_name()))
+            .map_err(|e| format!("Failed to move {}: {}", entry.file_name().to_string_lossy(), e))?;
     }
-
+    let _ = std::fs::remove_dir(&wrapper);
     Ok(())
 }
 

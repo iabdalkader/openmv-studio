@@ -61,7 +61,7 @@ fn parse_dfu_bytes(line: &str) -> Option<u64> {
 }
 
 fn run_dfu(app: &AppHandle, args: &[String]) -> Result<(), String> {
-    let dfu_name = format!("tools/dfu-util{}", std::env::consts::EXE_SUFFIX);
+    let dfu_name = format!("tools/bin/dfu-util{}", std::env::consts::EXE_SUFFIX);
     let dfu_path = resolve_resource(app, &dfu_name);
     let cmd_line = format!("{} {}", dfu_path.display(), args.join(" "));
     log::info!("Running: {}", cmd_line);
@@ -185,7 +185,7 @@ fn upload_args_for(partition_args: &str, size: usize) -> Vec<String> {
 //   Found Runtime: [...] ...
 // We accept both DFU and Runtime entries -- the caller decides what to do.
 pub fn list_devices(app: &AppHandle) -> Result<Vec<String>, String> {
-    let dfu_name = format!("tools/dfu-util{}", std::env::consts::EXE_SUFFIX);
+    let dfu_name = format!("tools/bin/dfu-util{}", std::env::consts::EXE_SUFFIX);
     let dfu_path = resolve_resource(app, &dfu_name);
     let output = std::process::Command::new(&dfu_path)
         .arg("-l")

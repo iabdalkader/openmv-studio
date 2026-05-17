@@ -51,6 +51,7 @@
       background: #4a9eff;
       transition: width 0.3s ease;
     }
+    .progress-bar.extracting { background: #f5a623; }
     .progress-bar.done { background: #4caf50; }
     #footer {
       display: flex; justify-content: flex-end;
@@ -215,7 +216,9 @@
       } else if (p.bytes_total > 0) {
         var pct = Math.round((p.bytes_downloaded / p.bytes_total) * 100);
         bar.style.width = pct + "%";
-        statusEl.textContent = pct + "%";
+        bar.classList.toggle("extracting", p.phase === "extracting");
+        var label = p.phase === "extracting" ? "Extracting" : "Downloading";
+        statusEl.textContent = label + " " + pct + "%";
         statusEl.className = "resource-status";
       } else {
         statusEl.textContent = p.message;
