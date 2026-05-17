@@ -31,11 +31,6 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
         raise FileNotFoundError(
             f"stedgeai dir not provided or missing: {stedgeai_dir}"
         )
-    npu_driver = os.path.join(
-        stedgeai_dir, "scripts", "N6_reloc", "npu_driver.py"
-    )
-    if not os.path.isfile(npu_driver):
-        raise FileNotFoundError(f"npu_driver.py not found at: {npu_driver}")
     stedgeai_bin = _find_stedgeai_bin(stedgeai_dir)
     print(f"stedgeai_bin={stedgeai_bin}", flush=True)
     if not models_dir or not os.path.isdir(models_dir):
@@ -81,19 +76,10 @@ def compile(model_path, build_dir, models_dir, stedgeai_dir):
     if rc != 0:
         raise RuntimeError(f"stedgeai generate failed (exit {rc})")
 
-    reloc_command = [
-        sys.executable,
-        npu_driver,
-        "--input", os.path.join(output_dir, "gen", "network.c"),
-        "--output", output_dir,
-        "--verbosity", "1",
-    ]
-    print(f"running N6 reloc: {' '.join(reloc_command)}", flush=True)
-    rc = subprocess.run(reloc_command, env=env, stdin=subprocess.DEVNULL).returncode
-    if rc != 0:
-        raise RuntimeError(f"N6 relocation failed (exit {rc})")
-
-    out = os.path.join(output_dir, "network_rel.bin")
+    # --relocatable produced the .bin in one pass; just collect it.
+    out = os.path.join(
+        output_dir, "workspace", "network_npu_reloc_build", "network_rel.bin"
+    )
     if not os.path.exists(out):
         raise FileNotFoundError(f"stedgeai output not found: {out}")
     return out
