@@ -268,6 +268,45 @@ logToggleBtn?.addEventListener("click", () => {
 
 // --- Clear / Lock ---
 
+const copyBtn = document.getElementById("btn-copy-term") as HTMLButtonElement | null;
+const copyIconDefault = copyBtn?.innerHTML ?? "";
+const copyIconDone = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12l5 5L20 7"/></svg>';
+let copyResetTimer: number | null = null;
+
+copyBtn?.addEventListener("click", async () => {
+  const el = document.getElementById("terminal-output");
+
+  if (!el) {
+    return;
+  }
+
+  const text = el.innerText;
+
+  if (!text) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    copyBtn.innerHTML = copyIconDone;
+    copyBtn.classList.add("active");
+    copyBtn.title = "Copied";
+
+    if (copyResetTimer !== null) {
+      window.clearTimeout(copyResetTimer);
+    }
+
+    copyResetTimer = window.setTimeout(() => {
+      copyBtn.innerHTML = copyIconDefault;
+      copyBtn.classList.remove("active");
+      copyBtn.title = "Copy";
+      copyResetTimer = null;
+    }, 1000);
+  } catch (e) {
+    console.error("Failed to copy console text:", e);
+  }
+});
+
 document.getElementById("btn-clear-term")?.addEventListener("click", () => {
   const el = document.getElementById("terminal-output");
 
